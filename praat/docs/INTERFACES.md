@@ -48,6 +48,7 @@ these modules directly; do not introduce parallel Sound or TextGrid definitions.
 | `annotation.split_interval` | `tier_id`, `time`, `text_offset=0` |
 | `annotation.insert_point` | `tier_id`, `time`, `label=""` |
 | `annotation.move_boundary` | `tier_id`, `right_interval_id`, `time` |
+| `annotation.move_point` | `tier_id`, `point_id`, `time` |
 
 `text_offset` counts Python Unicode code points, not Qt UTF-16 offsets or grapheme
 clusters. Only collapsed-caret splitting is implemented. Selected-text/range
@@ -70,8 +71,11 @@ bound it before claiming large-corpus editing support.
 - Add analysis as independent pure functions behind a service that accepts an
   immutable source revision and explicit settings. Agree result types (axis,
   values, units, validity, parameters/provenance) in a small contract PR first.
-- No playback implementation exists yet. Use an injectable transport with a
-  deterministic fake; do not use a GUI timer as the source clock.
+- `media.transport.Transport` now provides selected playback via an injectable
+  sink, a deterministic fake and lazy sounddevice output. `gui.tiers.TierCanvas`
+  renders/edits annotations through the same registry. See
+  [PLAYBACK_AND_TIERS.md](PLAYBACK_AND_TIERS.md) for integration contracts and limits;
+  the cursor is device-clock-derived, not advanced by GUI timer ticks.
 
 These Python spellings implement a subset of §16's language-neutral examples;
 they are not APIs of original Praat. Preserve compatibility with these consumers
