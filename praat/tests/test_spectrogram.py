@@ -356,3 +356,141 @@ def test_silence_has_zero_power_and_finite_display():
     assert math.isfinite(img.black) and math.isfinite(img.white)
     raw = display(spec, DisplaySettings(preemphasis=0.0))
     assert np.allclose(raw.db, -3080.2, atol=0.5)
+
+
+# ---------------------------------------------------------------------------
+# Display: undefined cells and out-of-axis viewports (review of #17)
+
+
+def _with_undefined(spectrogram, mask):
+    """The same spectrogram with the cells in ``mask`` undefined (NaN, valid=False)."""
+    power = np.array(spectrogram.power)
+    power[mask] = np.nan
+    return replace(spectrogram, power=power, valid=~mask)
+
+
+_DISPLAY_SETTINGS = [
+    DisplaySettings(),
+    DisplaySettings(preemphasis=0.0),
+    DisplaySettings(autoscaling=False),
+    DisplaySettings(dynamic_compression=0.5),
+    DisplaySettings(autoscaling=False, dynamic_compression=0.5),
+]
+
+
+@pytest.mark.parametrize("settings", _DISPLAY_SETTINGS)
+def test_undefined_cell_paints_white_and_leaves_other_cells_unchanged(settings):
+    spec = _spectrogram(_sound(_sine(1000.0)))
+    row = spec.time.nx // 2
+    quiet = int(np.argmin(spec.power[row]))  # not the frame maximum
+    mask = np.zeros(spec.power.shape, dtype=bool)
+    mask[row, quiet] = True
+    base = display(spec, settings)
+    img = display(_with_undefined(spec, mask), settings)
+    assert math.isfinite(img.black) and math.isfinite(img.white)
+    assert (img.black, img.white) == (base.black, base.white)
+    assert np.isnan(img.db[row, quiet])
+    dark = img.darkness()
+    assert np.isfinite(dark).all()
+    assert dark[row, quiet] == 0.0
+    assert np.array_equal(dark[~mask], base.darkness()[~mask])
+
+
+def test_undefined_peak_is_left_out_of_autoscaling():
+    spec = _spectrogram(_sound(_sine(1000.0)))
+    settings = DisplaySettings(preemphasis=0.0)
+    peak = np.unravel_index(int(np.argmax(spec.power)), spec.power.shape)
+    mask = np.zeros(spec.power.shape, dtype=bool)
+    mask[peak] = True
+    img = display(_with_undefined(spec, mask), settings)
+    assert img.black == pytest.approx(max(float(img.db[img.valid].max()), 0.0))
+    assert img.black <= display(spec, settings).black
+    assert np.isfinite(img.darkness()).all()
+
+
+@pytest.mark.parametrize("settings", _DISPLAY_SETTINGS)
+def test_all_undefined_row_paints_white_and_is_left_out_of_scaling(settings):
+    spec = _spectrogram(_sound(_sine(1000.0)))
+    mask = np.zeros(spec.power.shape, dtype=bool)
+    mask[3] = True
+    img = display(_with_undefined(spec, mask), settings)
+    dark = img.darkness()
+    assert np.isfinite(dark).all()
+    assert np.all(dark[3] == 0.0)
+    assert np.isnan(img.db[3]).all()
+    defined = img.db[img.valid]
+    assert np.isfinite(defined).all()
+    if settings.autoscaling and settings.dynamic_compression == 0.0:
+        assert img.black == pytest.approx(max(float(defined.max()), 0.0))
+
+
+@pytest.mark.parametrize("autoscaling", [True, False])
+def test_all_undefined_window_is_white_with_finite_endpoints(autoscaling):
+    spec = _spectrogram(_sound(_sine(1000.0)))
+    settings = DisplaySettings(autoscaling=autoscaling, dynamic_compression=0.5)
+    img = display(_with_undefined(spec, np.ones(spec.power.shape, dtype=bool)), settings)
+    assert img.db.shape == spec.power.shape
+    assert np.isnan(img.db).all()
+    assert np.all(img.darkness() == 0.0)
+    assert img.black == (0.0 if autoscaling else settings.maximum)
+    assert img.white == pytest.approx(img.black - settings.dynamic_range)
+
+
+def _check_window(img, spec, frames, bands):
+    assert (img.frames, img.bands) == (frames, bands)
+    assert 0 <= frames.start <= frames.stop <= spec.time.nx
+    assert 0 <= bands.start <= bands.stop <= spec.frequency.nx
+    expected = (frames.stop - frames.start, bands.stop - bands.start)
+    assert img.db.shape == expected
+    assert img.darkness().shape == expected
+
+
+@pytest.mark.parametrize("time_range", [(-0.2, -0.1), (1.1, 1.2), (-1e308, -1e307), (1e307, 1e308)])
+def test_time_range_outside_axis_shows_nothing(time_range):
+    spec = _spectrogram(_sound(_sine(1000.0)))
+    img = display(spec, time_range=time_range)
+    _check_window(img, spec, slice(0, 0), slice(0, spec.frequency.nx))
+
+
+@pytest.mark.parametrize("frequency_range", [(-200.0, -100.0), (6000.0, 7000.0)])
+def test_frequency_range_outside_axis_shows_nothing(frequency_range):
+    spec = _spectrogram(_sound(_sine(1000.0)))
+    img = display(spec, frequency_range=frequency_range)
+    _check_window(img, spec, slice(0, spec.time.nx), slice(0, 0))
+    assert img.black == 0.0
+
+
+@pytest.mark.parametrize(
+    ("given", "inside"),
+    [((-0.5, 0.25), (0.0, 0.25)), ((0.75, 5.0), (0.75, 1.0)), ((-1e308, 1e308), (0.0, 1.0))],
+)
+def test_time_range_partly_outside_axis_matches_its_overlap(given, inside):
+    spec = _spectrogram(_sound(_sine(1000.0)))
+    img = display(spec, time_range=given)
+    ref = display(spec, time_range=inside)
+    assert img.frames.stop > img.frames.start
+    _check_window(img, spec, ref.frames, ref.bands)
+    assert np.array_equal(img.db, ref.db)
+    assert img.black == ref.black
+
+
+@pytest.mark.parametrize(
+    ("given", "inside"),
+    [((-200.0, 1000.0), (0.0, 1000.0)), ((4000.0, 9000.0), (4000.0, 5000.0))],
+)
+def test_frequency_range_partly_outside_axis_matches_its_overlap(given, inside):
+    spec = _spectrogram(_sound(_sine(1000.0)))
+    img = display(spec, frequency_range=given)
+    ref = display(spec, frequency_range=inside)
+    assert img.bands.stop > img.bands.start
+    _check_window(img, spec, ref.frames, ref.bands)
+    assert np.array_equal(img.db, ref.db)
+    assert img.black == ref.black
+
+
+@pytest.mark.parametrize("bad", [(math.nan, 0.5), (0.0, math.inf), (-math.inf, 0.5), (0.5, 0.2)])
+@pytest.mark.parametrize("which", ["time_range", "frequency_range"])
+def test_display_rejects_non_finite_or_reversed_ranges(which, bad):
+    spec = _spectrogram(_sound(_sine(1000.0)))
+    with pytest.raises(InvalidInput):
+        display(spec, **{which: bad})

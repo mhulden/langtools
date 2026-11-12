@@ -179,11 +179,13 @@ class SpectrogramImage:
     """dB values (frames, bins) for the window, with the grey endpoints.
 
     ``white`` = maximum - dynamic range, ``black`` = maximum; linear in between.
+    Undefined cells (``valid`` False, e.g. above Nyquist) hold NaN dB and paint white.
     """
 
     frames: slice
     bands: slice
     db: NDArray[np.float64]
+    valid: NDArray[np.bool_]
     white: float
     black: float
 
@@ -192,14 +194,36 @@ class SpectrogramImage:
         span = self.black - self.white
         if span <= 0:
             span = 1.0
-        return np.clip((self.db - self.white) / span, 0.0, 1.0)
+        return np.where(self.valid, np.clip((self.db - self.white) / span, 0.0, 1.0), 0.0)
+
+
+def _view_range(
+    name: str, given: tuple[float, float] | None, axis: SampledAxis
+) -> tuple[float, float]:
+    if given is None:
+        return axis.xmin, axis.xmax
+    low, high = float(given[0]), float(given[1])
+    if not (math.isfinite(low) and math.isfinite(high)):
+        raise InvalidInput(f"The {name} range must be finite.")
+    if low > high:
+        raise InvalidInput(f"The {name} range must not end before it starts.")
+    return low, high
 
 
 def _window_indices(axis: SampledAxis, low: float, high: float) -> slice:
-    """Samples whose centres lie within [low - 0.49999 dx, high + 0.49999 dx]."""
-    first = math.ceil((low - 0.49999 * axis.dx - axis.x1) / axis.dx)
-    last = math.floor((high + 0.49999 * axis.dx - axis.x1) / axis.dx)
-    return slice(max(0, first), min(axis.nx, last + 1))
+    """Samples whose centres lie within [low - 0.49999 dx, high + 0.49999 dx].
+
+    Both ends are clamped to [0, nx], so a range outside the axis can never wrap
+    around to unrelated samples. An empty intersection is ``slice(0, 0)``.
+    """
+    first = (low - 0.49999 * axis.dx - axis.x1) / axis.dx
+    last = (high + 0.49999 * axis.dx - axis.x1) / axis.dx
+    # Clamp in float first, so huge (finite) bounds cannot overflow ceil/floor.
+    start = min(max(math.ceil(min(max(first, -1.0), axis.nx + 1.0)), 0), axis.nx)
+    stop = min(max(math.floor(min(max(last, -1.0), axis.nx + 1.0)) + 1, 0), axis.nx)
+    if stop <= start:
+        return slice(0, 0)
+    return slice(start, stop)
 
 
 def display(
@@ -209,25 +233,31 @@ def display(
     time_range: tuple[float, float] | None = None,
     frequency_range: tuple[float, float] | None = None,
 ) -> SpectrogramImage:
-    """Paint transform over the visible window; autoscaling uses only that window."""
+    """Paint transform over the visible window; autoscaling uses only that window.
+
+    Ranges must be finite and ordered; parts outside the axes are dropped. Undefined
+    cells take no part in autoscaling or dynamic compression, and paint white. A
+    window with no defined cells (empty, or all undefined) has black at 0 dB when
+    autoscaling, else at the fixed maximum.
+    """
     settings = settings or DisplaySettings()
     t = spectrogram.time
     f = spectrogram.frequency
-    tmin, tmax = time_range if time_range else (t.xmin, t.xmax)
-    fmin, fmax = frequency_range if frequency_range else (f.xmin, f.xmax)
-    frames = _window_indices(t, tmin, tmax)
-    bands = _window_indices(f, fmin, fmax)
-    part = spectrogram.power[frames, bands]
-    if part.size == 0:
-        return SpectrogramImage(frames, bands, np.empty((0, 0)), 0.0, 0.0)
+    frames = _window_indices(t, *_view_range("time", time_range, t))
+    bands = _window_indices(f, *_view_range("frequency", frequency_range, f))
+    valid = spectrogram.valid[frames, bands]
+    part = np.where(valid, spectrogram.power[frames, bands], 0.0)
     centres = f.x1 + np.arange(bands.start, bands.stop) * f.dx
     preemphasis = (settings.preemphasis / math.log(2)) * np.log(
         np.maximum(centres, 0.0) / 1000.0 + TINY
     )
     db = (10.0 / math.log(10)) * np.log(part / REFERENCE_PSD + TINY) + preemphasis[None, :]
-    local = np.maximum(db.max(axis=1), 0.0)  # the reference's per-frame maximum starts at 0
-    maximum = float(local.max()) if settings.autoscaling else settings.maximum
+    db = np.where(valid, db, np.nan)
+    # The reference's per-frame maximum starts at 0; undefined cells are left out.
+    local = np.max(db, axis=1, where=valid, initial=0.0)
     if settings.autoscaling:
-        maximum = max(maximum, 0.0)
+        maximum = float(np.max(local, initial=0.0))
+    else:
+        maximum = settings.maximum
     db = db + (settings.dynamic_compression * (maximum - local))[:, None]
-    return SpectrogramImage(frames, bands, db, maximum - settings.dynamic_range, maximum)
+    return SpectrogramImage(frames, bands, db, valid, maximum - settings.dynamic_range, maximum)
