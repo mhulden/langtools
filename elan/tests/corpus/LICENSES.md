@@ -4,14 +4,16 @@
 
 | File | Source | License |
 |---|---|---|
-| `minimal.eaf` | The example in REIMPLEMENTATION.md §3.1.4 | Same as this repository |
-| `edge_cases.eaf` | Written for this project: every stereotype, nested subdivision with unaligned slots, multilingual CV, external CV, lexicon ref, ref links, licenses, unknown elements and attributes, comments, empty and multi-line values, non-BMP and RTL text | Same as this repository |
-| `old_cv_2_7.eaf` | Written for this project in the EAF 2.7 form (monolingual CVs) | Same as this repository |
-| `problems.eaf` | Written for this project: overlaps, a zero-length annotation, decreasing time order, an unused slot, two associations for one parent, a dangling reference, an unknown tier type | Same as this repository |
-| `nested_subdivision_4.eaf` | Hand-made for elan-ng tests, same license as the repo | Same as this repository |
-| `format_2_8.eaf` | Hand-made for elan-ng tests, same license as the repo | Same as this repository |
+| `minimal.eaf` | The example in REIMPLEMENTATION.md §3.1.4 | MIT (this repository) |
+| `edge_cases.eaf` | Written for this project: every stereotype, nested subdivision with unaligned slots, multilingual CV, external CV, lexicon ref, ref links, licenses, unknown elements and attributes, comments, empty and multi-line values, non-BMP and RTL text | MIT (this repository) |
+| `old_cv_2_7.eaf` | Written for this project in the EAF 2.7 form (monolingual CVs) | MIT (this repository) |
+| `problems.eaf` | Written for this project: overlaps, a zero-length annotation, decreasing time order, an unused slot, two associations for one parent, a dangling reference, an unknown tier type | MIT (this repository) |
+| `nested_subdivision_4.eaf` | Written for this project: a subdivision chain nested four levels deep (utterance, word, morph, syllable, phone), with unaligned time slots | MIT (this repository) |
+| `format_2_8.eaf` | Written for this project in the EAF 2.8 form (multilingual controlled vocabularies, LANG_REF and CVE_REF on annotations) | MIT (this repository) |
 
-## Downloaded files (`tests/corpus/external/`, not committed; run `fetch.py`)
+## External corpus (`tests/corpus/external/`, opt-in, not committed)
+
+Files that may not be redistributed live only in this git-ignored folder. Getting them is opt-in: run `uv run python tests/corpus/fetch.py` from `elan/`. Each entry in `fetch.py` pins the source URL and a SHA-256 checksum, and the table below records where each file comes from and its terms. Required PR CI does not download these files: tests that need them skip when they are missing. A separate, non-required CI job (`external-corpus` in `.github/workflows/elan.yml`) downloads them and runs the full suite.
 
 | File | Source | License |
 |---|---|---|

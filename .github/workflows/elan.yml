@@ -49,12 +49,33 @@ jobs:
         run: uv run mypy
       - name: Import contracts
         run: uv run lint-imports
-      - name: Download external test corpus
-        run: uv run python tests/corpus/fetch.py
+      # Required CI uses only committed, redistributable fixtures (spec §6.2, §8.4 #5).
+      # Tests that need the external corpus skip here; the external-corpus job runs them.
       - name: Tests
         run: uv run pytest -v
       - name: Performance tests (spec 6.5)
         run: uv run pytest -m perf -v -s
+
+  external-corpus:
+    name: external corpus (ubuntu, not required)
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v5
+      - uses: astral-sh/setup-uv@v7
+        with:
+          version: ${{ env.UV_VERSION }}
+      - name: Install Qt system libraries
+        working-directory: .
+        run: >
+          sudo apt-get update && sudo apt-get install -y --no-install-recommends
+          libegl1 libgl1 libxkbcommon0 libxkbcommon-x11-0 libfontconfig1 libdbus-1-3
+      - name: Install dependencies
+        run: uv sync --locked --python 3.12
+      - name: Download external test corpus (opt-in, pinned by SHA-256)
+        run: uv run python tests/corpus/fetch.py
+      - name: Tests with the external corpus
+        run: uv run pytest -v
 
   package:
     name: package (${{ matrix.os }})

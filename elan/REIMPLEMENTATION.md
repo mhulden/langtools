@@ -1135,7 +1135,7 @@ Not changed on purpose: menu names and order, mode names, terminology ("tier typ
 
 ### 6.2 Round-trip tests against real `.eaf` files
 
-Corpus in `tests/corpus/`, each file with its source and license in `tests/corpus/LICENSES.md`. Only files whose license allows redistribution are committed; others are fetched by a script into a git-ignored folder and tested in CI if a secret/download is available [decide in M1].
+Corpus in `tests/corpus/`, each file with its source and license in `tests/corpus/LICENSES.md`. Only files whose license allows redistribution are committed (`tests/data/`). Others go in an opt-in, git-ignored external corpus (`tests/corpus/external/`), downloaded by `tests/corpus/fetch.py`, which pins each file's URL and SHA-256; `LICENSES.md` records its provenance and terms (decided, §8.4 #5). Required PR CI runs only on the committed fixtures: tests that need an external file skip when it is missing. A separate, non-required CI job downloads the external corpus and runs the full suite.
 
 Candidate sources (to confirm license per file before adding):
 - Sample files shipped with ELAN (the ELAN installer contains example `.eaf` files) — check the license that applies to the samples, since ELAN itself is GPL-3.0.
@@ -1238,16 +1238,18 @@ The manual documents ELAN 6.3. Each item below is tagged [VERIFY] in the text ab
 
 ### 8.3 Licensing and naming
 
-- **ELAN is GPL-3.0.** We do not copy or translate ELAN code. This document is based on the manual, the XSD, the format documentation and observed behavior, which carry no such constraint. If we ever need to translate a specific algorithm from ELAN's source, we will (a) stop and ask before doing it, (b) record which part and why in §2.2.6, and (c) the repository must then be GPL-3.0-compatible. Currently **no part of the design is taken from ELAN's source.**
-- **Repository license:** `mhulden/langtools` has no license file yet. The choice is the owner's. Our dependencies (LGPL Qt, BSD/MIT others, LGPL FFmpeg) are compatible with GPL-3.0, MIT, Apache-2.0 or BSD for the elan-ng code, provided we keep Qt and FFmpeg dynamically linked (they are, as shared libraries in the bundle) and ship their license texts. **Decision needed from the repository owner.**
-- **EAF schema file:** we include `EAFv3.0.xsd` for validation in tests; check its license/terms (MPI) before committing it, or download it in the test setup instead.
-- **Test corpus:** only redistributable files are committed, with sources and licenses listed (§6.2).
+- **ELAN is GPL-3.0.** We do not copy or translate ELAN code. This document is based on the manual, the XSD, the format documentation and observed behavior, which carry no such constraint. If we ever need to translate a specific algorithm from ELAN's source, we will (a) stop and ask before doing it, (b) record which part and why in §2.2.6, and (c) get a licensing review from the repository owner first, since that would conflict with the MIT license below. Currently **no part of the design is taken from ELAN's source.**
+- **Repository license: MIT** for original LangTools code (decided by the repository owner, see §8.4). The text is in `LICENSE` at the repository root. Third-party dependencies, schemas, fixtures and assets keep their own licenses and notices. Our dependencies (LGPL Qt, BSD/MIT others, LGPL FFmpeg) are compatible with MIT for the elan-ng code, provided we keep Qt and FFmpeg dynamically linked (they are, as shared libraries in the bundle) and ship their license texts.
+- **EAF schema file:** `EAFv3.0.xsd` is MPI's and is not committed. `tests/corpus/fetch.py` downloads it, pinned by SHA-256, into the external corpus.
+- **Test corpus:** only redistributable files are committed. Others live in the opt-in external corpus (§6.2). Both are listed with sources and licenses in `tests/corpus/LICENSES.md`.
 - **Name:** "ELAN" is MPI's name. "elan-ng" is a working name; a public release should use a distinct name and say "compatible with ELAN" rather than imply it is an official ELAN version.
 
 ### 8.4 Decisions requested from the reviewer
 
-1. Approve the stack: **Python 3.12 + PySide6 + FFmpeg (Qt Multimedia + PyAV)**, with libmpv as fallback.
-2. Approve the MVP scope: milestones M0–M5 (Annotation mode only, Normal propagation mode first, no import/export besides EAF).
-3. Repository license (see §8.3).
-4. Whether to keep the command palette (§5.4).
-5. Whether the test corpus may include files that cannot be committed (fetched in CI with a download script).
+1. Approve the stack: **Python 3.12 + PySide6 + FFmpeg (Qt Multimedia + PyAV)**, with libmpv as fallback. *Open.*
+2. Approve the MVP scope: milestones M0–M5 (Annotation mode only, Normal propagation mode first, no import/export besides EAF). *Open.*
+3. Repository license (see §8.3). **Decided: MIT** for original LangTools code. Third-party dependencies, schemas, fixtures and assets keep their own licenses and notices. Any future translation of GPL ELAN source needs a licensing review first.
+4. Whether to keep the command palette (§5.4). **Decided: keep it** as an additive M4/M5 discoverability feature built from the shared command registry, not as an early compatibility gate.
+5. Whether the test corpus may include files that cannot be committed. **Decided: yes, but only** in an opt-in, git-ignored external corpus with recorded provenance, terms and checksums. Required PR CI must run fully from redistributable committed fixtures (§6.2).
+
+Decisions 3–5 were given by the repository owner in GitHub Discussion #13 (ELAN: agent roll call and work claims).
