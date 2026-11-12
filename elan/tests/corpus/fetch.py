@@ -1,8 +1,9 @@
 """Download the external test corpus into tests/corpus/external/ (git-ignored).
 
 These files are not committed: their content belongs to others (see LICENSES.md), and
-some are large. Each download is pinned by URL and SHA-256. Tests that need a file skip
-when it is missing, and CI runs this script first.
+some are large. Each download is pinned by URL and SHA-256. Getting them is opt-in:
+tests that need a file skip when it is missing. Required PR CI does not run this script;
+only the external-corpus job does, when started by hand (REIMPLEMENTATION.md §6.2).
 
 Usage (from elan/): uv run python tests/corpus/fetch.py
 """
