@@ -1246,10 +1246,10 @@ The manual documents ELAN 6.3. Each item below is tagged [VERIFY] in the text ab
 
 ### 8.4 Decisions requested from the reviewer
 
-1. Approve the stack: **Python 3.12 + PySide6 + FFmpeg (Qt Multimedia + PyAV)**, with libmpv as fallback. *Open.*
-2. Approve the MVP scope: milestones M0–M5 (Annotation mode only, Normal propagation mode first, no import/export besides EAF). *Open.*
+1. Approve the stack: **Python 3.12 + PySide6 + FFmpeg (Qt Multimedia + PyAV)**, with libmpv as fallback. **Decided: approved**, with dependency licensing and cross-platform distribution details documented (§4.3, §8.3).
+2. Approve the MVP scope: milestones M0–M5 (Annotation mode only, Normal propagation mode first, no import/export besides EAF). **Decided: approved** as proposed.
 3. Repository license (see §8.3). **Decided: MIT** for original LangTools code. Third-party dependencies, schemas, fixtures and assets keep their own licenses and notices. Any future translation of GPL ELAN source needs a licensing review first.
 4. Whether to keep the command palette (§5.4). **Decided: keep it** as an additive M4/M5 discoverability feature built from the shared command registry, not as an early compatibility gate.
 5. Whether the test corpus may include files that cannot be committed. **Decided: yes, but only** in an opt-in, git-ignored external corpus with recorded provenance, terms and checksums. Required PR CI must run fully from redistributable committed fixtures (§6.2).
 
-Decisions 3–5 were given by the repository owner in GitHub Discussion #13 (ELAN: agent roll call and work claims).
+All five were decided by the repository owner in GitHub Discussion #13 (ELAN: agent roll call and work claims): decisions 3–5 first, then 1–2 on 2026-11-12 (<https://github.com/mhulden/langtools/discussions/13#discussioncomment-19572458>). These record design decisions only; they do not approve any pull request.
