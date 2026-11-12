@@ -3,7 +3,7 @@
 These files are not committed: their content belongs to others (see LICENSES.md), and
 some are large. Each download is pinned by URL and SHA-256. Getting them is opt-in:
 tests that need a file skip when it is missing. Required PR CI does not run this script;
-only the non-required external-corpus job does (REIMPLEMENTATION.md §6.2).
+only the external-corpus job does, when started by hand (REIMPLEMENTATION.md §6.2).
 
 Usage (from elan/): uv run python tests/corpus/fetch.py
 """

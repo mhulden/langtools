@@ -57,7 +57,9 @@ jobs:
         run: uv run pytest -m perf -v -s
 
   external-corpus:
-    name: external corpus (ubuntu, not required)
+    name: external corpus (ubuntu, manual only)
+    # Opt-in (spec §8.4 #5): only when started by hand from the Actions tab.
+    if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     continue-on-error: true
     steps:

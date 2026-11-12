@@ -1135,7 +1135,7 @@ Not changed on purpose: menu names and order, mode names, terminology ("tier typ
 
 ### 6.2 Round-trip tests against real `.eaf` files
 
-Corpus in `tests/corpus/`, each file with its source and license in `tests/corpus/LICENSES.md`. Only files whose license allows redistribution are committed (`tests/data/`). Others go in an opt-in, git-ignored external corpus (`tests/corpus/external/`), downloaded by `tests/corpus/fetch.py`, which pins each file's URL and SHA-256; `LICENSES.md` records its provenance and terms (decided, §8.4 #5). Required PR CI runs only on the committed fixtures: tests that need an external file skip when it is missing. A separate, non-required CI job downloads the external corpus and runs the full suite.
+Corpus in `tests/corpus/`, each file with its source and license in `tests/corpus/LICENSES.md`. Only files whose license allows redistribution are committed (`tests/data/`). Others go in an opt-in, git-ignored external corpus (`tests/corpus/external/`), downloaded by `tests/corpus/fetch.py`, which pins each file's URL and SHA-256; `LICENSES.md` records its provenance and terms (decided, §8.4 #5). Required PR CI runs only on the committed fixtures: tests that need an external file skip when it is missing. A separate, non-required CI job (`external-corpus`) downloads the external corpus and runs the full suite; it runs only when started by hand (`workflow_dispatch`), never on pushes or PRs.
 
 Candidate sources (to confirm license per file before adding):
 - Sample files shipped with ELAN (the ELAN installer contains example `.eaf` files) — check the license that applies to the samples, since ELAN itself is GPL-3.0.
@@ -1244,7 +1244,7 @@ The manual documents ELAN 6.3. Each item below is tagged [VERIFY] in the text ab
 - **Test corpus:** only redistributable files are committed. Others live in the opt-in external corpus (§6.2). Both are listed with sources and licenses in `tests/corpus/LICENSES.md`.
 - **Name:** "ELAN" is MPI's name. "elan-ng" is a working name; a public release should use a distinct name and say "compatible with ELAN" rather than imply it is an official ELAN version.
 
-### 8.4 Decisions requested from the reviewer
+### 8.4 Reviewer decisions
 
 1. Approve the stack: **Python 3.12 + PySide6 + FFmpeg (Qt Multimedia + PyAV)**, with libmpv as fallback. **Decided: approved**, with dependency licensing and cross-platform distribution details documented (§4.3, §8.3).
 2. Approve the MVP scope: milestones M0–M5 (Annotation mode only, Normal propagation mode first, no import/export besides EAF). **Decided: approved** as proposed.

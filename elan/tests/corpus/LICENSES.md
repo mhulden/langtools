@@ -13,7 +13,7 @@
 
 ## External corpus (`tests/corpus/external/`, opt-in, not committed)
 
-Files that may not be redistributed live only in this git-ignored folder. Getting them is opt-in: run `uv run python tests/corpus/fetch.py` from `elan/`. Each entry in `fetch.py` pins the source URL and a SHA-256 checksum, and the table below records where each file comes from and its terms. Required PR CI does not download these files: tests that need them skip when they are missing. A separate, non-required CI job (`external-corpus` in `.github/workflows/elan.yml`) downloads them and runs the full suite.
+Files that may not be redistributed live only in this git-ignored folder. Getting them is opt-in: run `uv run python tests/corpus/fetch.py` from `elan/`. Each entry in `fetch.py` pins the source URL and a SHA-256 checksum, and the table below records where each file comes from and its terms. Required PR CI does not download these files: tests that need them skip when they are missing. A separate, non-required CI job (`external-corpus` in `.github/workflows/elan.yml`) downloads them and runs the full suite. It runs only when started by hand from the Actions tab (`workflow_dispatch`), never on pushes or PRs.
 
 | File | Source | License |
 |---|---|---|
