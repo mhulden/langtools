@@ -8,8 +8,10 @@
 | `edge_cases.eaf` | Written for this project: every stereotype, nested subdivision with unaligned slots, multilingual CV, external CV, lexicon ref, ref links, licenses, unknown elements and attributes, comments, empty and multi-line values, non-BMP and RTL text | MIT (this repository) |
 | `old_cv_2_7.eaf` | Written for this project in the EAF 2.7 form (monolingual CVs) | MIT (this repository) |
 | `problems.eaf` | Written for this project: overlaps, a zero-length annotation, decreasing time order, an unused slot, two associations for one parent, a dangling reference, an unknown tier type | MIT (this repository) |
-| `nested_subdivision_4.eaf` | Written for this project: a subdivision chain nested four levels deep (utterance, word, morph, syllable, phone), with unaligned time slots | MIT (this repository) |
-| `format_2_8.eaf` | Written for this project in the EAF 2.8 form (multilingual controlled vocabularies, LANG_REF and CVE_REF on annotations) | MIT (this repository) |
+| `nested_subdivision_4.eaf` | Written for this project: 4-level Time Subdivision below the root (utterance, word, morph, syllable, phone), unaligned slots at each level, a sparse child tier (the second word has no morphs); `validate()` reports no problems | MIT (this repository) |
+| `format_2_8.eaf` | Written for this project in the EAF 2.8 form: multilingual controlled vocabularies, LANGUAGE elements, LANG_REF and CVE_REF on annotations; written back as 3.0, which must be schema-valid | MIT (this repository) |
+
+Generated files are not committed: `tests/eafgen.py` builds them in code (large flat files, a large file with child tiers, text edge cases) under the same MIT license.
 
 ## External corpus (`tests/corpus/external/`, opt-in, not committed)
 
