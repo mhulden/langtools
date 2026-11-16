@@ -508,3 +508,23 @@ def test_sync_does_not_pull_a_longer_slave_back_after_master_end() -> None:
     assert master.position_ms() == 10_000.0
     assert slave.position_ms() == pytest.approx(12_000.0)
     assert clock.time_ms() == pytest.approx(12_000.0)
+
+
+def test_nudged_slave_returns_to_base_rate_after_master_end() -> None:
+    time = FakeTime()
+    master = FakeBackend(time, duration=10_000.0)
+    slave = FakeBackend(time, duration=15_000.0)
+    service = MediaService(master)
+    service.add_slave(Slave(slave))
+    clock = MediaClock(service, now=time.now)
+    clock.seek(9_000)
+    clock.play()
+    slave.seek(9_025)  # 25 ms ahead: sync nudges it to 0.98
+    service.sync_slaves()
+    assert slave.rate == pytest.approx(0.98)
+    time.advance(1_500)  # master reaches its end at 10 s
+    clock.tick()
+    seeks_before = len(slave.seeks)
+    service.sync_slaves()
+    assert slave.rate == 1.0
+    assert len(slave.seeks) == seeks_before  # no re-seek toward the ended master

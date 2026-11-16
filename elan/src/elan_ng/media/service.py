@@ -168,9 +168,12 @@ class MediaService:
         """Correct each slave's drift: re-seek when large, nudge the rate when small.
 
         Once the master has reached its end it is no longer a time reference (the document
-        can be longer, §2.3), so slaves are left to run freely until the next seek.
+        can be longer, §2.3), so slaves are not re-seeked; they run freely at the base rate
+        (any drift nudge is undone) until the next seek.
         """
         if self.master_at_end():
+            for slave in self.slaves:
+                self._apply_rate(slave, self.base_rate)
             return
         doc_t = self.document_position_ms()
         cfg = self.settings
