@@ -2,22 +2,35 @@
 
 Each builder returns an elan_ng ``Document`` built in code, so no large file has to be stored
 in the repository. The builders use no randomness, so every call gives the same document.
+``large_bytes`` and ``hierarchy_bytes`` cache the serialized large files, so a test session
+builds and writes each size only once.
 
 Run this file to write the same documents as .eaf files:
 
-    uv run python tests/data/generate.py OUTPUT_FOLDER
+    uv run python tests/eafgen.py OUTPUT_FOLDER
 """
 
 from __future__ import annotations
 
 import argparse
+import functools
 from collections.abc import Sequence
 from pathlib import Path
 
-from elan_ng.core.model import AlignableAnnotation, Document, Tier, TierType, TimeSlot
+from elan_ng.core.model import (
+    AlignableAnnotation,
+    Document,
+    RefAnnotation,
+    Stereotype,
+    Tier,
+    TierType,
+    TimeSlot,
+)
 from elan_ng.io.eaf_writer import write_eaf
 
 SEGMENT_TYPE = "segment"
+WORD_TYPE = "word"  # Time Subdivision of a segment
+TRANSLATION_TYPE = "translation"  # Symbolic Association with a segment
 SPAN_MS = 400  # duration of each generated annotation
 LARGE_TIERS = 30
 LARGE_SIZES = (5_000, 50_000)
@@ -95,6 +108,87 @@ def build_large(n_annotations: int, n_tiers: int) -> Document:
     return _finish(doc, all_slots)
 
 
+@functools.cache
+def large_bytes(n_annotations: int, n_tiers: int = LARGE_TIERS) -> bytes:
+    """``build_large`` serialized with ``write_eaf``, built once per argument pair."""
+    return write_eaf(build_large(n_annotations, n_tiers))
+
+
+def build_large_hierarchy(n_segments: int, n_tiers: int) -> Document:
+    """Like ``build_large``, but every root tier also has two child tiers.
+
+    Each of the ``n_segments`` root annotations gets two words on a Time Subdivision child
+    (their shared inner boundary is an unaligned slot, so ``analyze`` has to interpolate it)
+    and one translation on a Symbolic Association child. The document therefore has
+    ``4 * n_segments`` annotations. Root tiers are ``tierNN``, children ``tierNN_words`` and
+    ``tierNN_translation``. Values are ``"word N"`` on the roots, ``"word N.1"`` and
+    ``"word N.2"`` on the words and ``"translation N"`` on the translations.
+    """
+    if n_tiers < 1:
+        raise ValueError("n_tiers must be at least 1")
+    doc = _new_document()
+    doc.tier_types.append(
+        TierType(id=WORD_TYPE, time_alignable="true", constraint=Stereotype.TIME_SUBDIVISION)
+    )
+    doc.tier_types.append(
+        TierType(
+            id=TRANSLATION_TYPE, time_alignable="false", constraint=Stereotype.SYMBOLIC_ASSOCIATION
+        )
+    )
+    # Unaligned slots have no time to sort by; this key puts each one between its neighbours.
+    sort_key: dict[TimeSlot, float] = {}
+    all_slots: list[TimeSlot] = []
+    next_annotation = n_segments + 1  # roots take a1..aN, children continue after them
+    done = 0
+    for tier_no in range(n_tiers):
+        count = n_segments // n_tiers + (1 if tier_no < n_segments % n_tiers else 0)
+        root_id = f"tier{tier_no:02d}"
+        values = [f"word {done + k + 1}" for k in range(count)]
+        first_new_slot = len(all_slots)
+        _add_segment_tier(doc, all_slots, root_id, values, done + 1)
+        for slot in all_slots[first_new_slot:]:
+            sort_key[slot] = float(slot.value or 0)
+        roots = doc.tiers[-1].annotations
+
+        words = Tier(id=f"{root_id}_words", type_ref=WORD_TYPE, parent_ref=root_id)
+        translations = Tier(
+            id=f"{root_id}_translation", type_ref=TRANSLATION_TYPE, parent_ref=root_id
+        )
+        for root in roots:
+            assert isinstance(root, AlignableAnnotation)
+            middle = TimeSlot(f"ts{len(all_slots) + 1}")
+            all_slots.append(middle)
+            sort_key[middle] = sort_key[root.begin] + SPAN_MS / 2
+            for part, (begin, end) in enumerate(((root.begin, middle), (middle, root.end)), 1):
+                words.annotations.append(
+                    AlignableAnnotation(
+                        id=f"a{next_annotation}",
+                        value=f"{root.value}.{part}",
+                        begin=begin,
+                        end=end,
+                    )
+                )
+                next_annotation += 1
+            translations.annotations.append(
+                RefAnnotation(
+                    id=f"a{next_annotation}",
+                    value=root.value.replace("word", "translation"),
+                    ref=root.id,
+                )
+            )
+            next_annotation += 1
+        doc.tiers.extend([words, translations])
+        done += count
+    doc.time_order = sorted(all_slots, key=lambda slot: sort_key[slot])
+    return doc
+
+
+@functools.cache
+def hierarchy_bytes(n_segments: int, n_tiers: int = LARGE_TIERS) -> bytes:
+    """``build_large_hierarchy`` serialized with ``write_eaf``, built once per argument pair."""
+    return write_eaf(build_large_hierarchy(n_segments, n_tiers))
+
+
 def build_text_edge_cases() -> Document:
     """One time-aligned tier per entry of ``TEXT_EDGE_CASES``, with one annotation each."""
     doc = _new_document()
@@ -112,6 +206,8 @@ def main(argv: Sequence[str] | None = None) -> None:
     outputs: dict[str, Document] = {
         f"generated_large_{size}.eaf": build_large(size, LARGE_TIERS) for size in LARGE_SIZES
     }
+    for size in LARGE_SIZES:
+        outputs[f"generated_hierarchy_{size}.eaf"] = build_large_hierarchy(size // 4, LARGE_TIERS)
     outputs["generated_text_edge_cases.eaf"] = build_text_edge_cases()
     for name, doc in outputs.items():
         path = args.folder / name
