@@ -11,6 +11,7 @@ The design and specification are in [REIMPLEMENTATION.md](REIMPLEMENTATION.md).
 - Python 3.12 or 3.13
 - [uv](https://docs.astral.sh/uv/) 0.5 or later (it installs the pinned dependencies from `uv.lock`)
 - Windows 10/11 x64, macOS 12+ (Intel or Apple Silicon) or 64-bit Linux
+  - Development on Apple Silicon needs macOS 14+: the PyAV wheel used for media (`av` 19) is only built for macOS 14+ on arm64. Intel Macs work from macOS 12. The shipped app keeps supporting macOS 12+ on both through its own FFmpeg/PyAV build (issue #28, `docs/media-licensing.md`).
 
 ## Run from source
 

@@ -84,7 +84,8 @@ class MediaService:
         """Add a slave and align it: mute if video-only, seek to its target, set rate, play."""
         self.slaves.append(slave)
         slave.backend.set_muted(slave.video_only)
-        slave.backend.seek(self.document_position_ms() + slave.offset_ms)
+        target = self.document_position_ms() + slave.offset_ms
+        slave.backend.seek(self._clamp_media(slave.backend, target))
         self._apply_rate(slave, self.base_rate)
         if self.playing:
             slave.backend.play()
@@ -104,10 +105,10 @@ class MediaService:
         self.playing = False
 
     def seek(self, doc_ms: float) -> None:
-        """Seek the master and every slave to document time `doc_ms`."""
-        self.master.seek(doc_ms + self.master_offset_ms)
+        """Seek every backend to document time `doc_ms`, clamped to that backend's duration."""
+        self.master.seek(self._clamp_media(self.master, doc_ms + self.master_offset_ms))
         for slave in self.slaves:
-            slave.backend.seek(doc_ms + slave.offset_ms)
+            slave.backend.seek(self._clamp_media(slave.backend, doc_ms + slave.offset_ms))
 
     def set_rate(self, rate: float) -> None:
         """Set the base rate on all backends."""
@@ -123,21 +124,58 @@ class MediaService:
             slave.backend.set_rate(rate)
             slave.rate = rate
 
+    @staticmethod
+    def _clamp_media(backend: MediaBackend, media_ms: float) -> float:
+        """Clamp a media target to [0, backend duration]; the upper bound applies when known."""
+        target = max(0.0, media_ms)
+        duration = backend.duration_ms()
+        if duration is not None:
+            target = min(target, duration)
+        return target
+
     def document_position_ms(self) -> float:
         """Master position in document time."""
         return self.master.position_ms() - self.master_offset_ms
 
-    def duration_ms(self) -> float | None:
-        """Master duration in document time, or None when unknown."""
+    def master_end_ms(self) -> float | None:
+        """Master end in document time (its duration minus its offset), or None if unknown."""
         duration = self.master.duration_ms()
         return None if duration is None else duration - self.master_offset_ms
 
+    def duration_ms(self) -> float | None:
+        """Document length in document time.
+
+        Policy (REIMPLEMENTATION.md §2.3): the maximum over the master and every slave of
+        (backend duration - its offset), counting only backends whose duration is known.
+        None when no backend reports a duration.
+        """
+        ends: list[float] = []
+        master_end = self.master_end_ms()
+        if master_end is not None:
+            ends.append(master_end)
+        for slave in self.slaves:
+            duration = slave.backend.duration_ms()
+            if duration is not None:
+                ends.append(duration - slave.offset_ms)
+        return max(ends) if ends else None
+
+    def master_at_end(self) -> bool:
+        """True when the master backend is at (within 1 ms of) its own end."""
+        duration = self.master.duration_ms()
+        return duration is not None and self.master.position_ms() >= duration - 1.0
+
     def sync_slaves(self) -> None:
-        """Correct each slave's drift: re-seek when large, nudge the rate when small."""
+        """Correct each slave's drift: re-seek when large, nudge the rate when small.
+
+        Once the master has reached its end it is no longer a time reference (the document
+        can be longer, §2.3), so slaves are left to run freely until the next seek.
+        """
+        if self.master_at_end():
+            return
         doc_t = self.document_position_ms()
         cfg = self.settings
         for slave in self.slaves:
-            target = doc_t + slave.offset_ms
+            target = self._clamp_media(slave.backend, doc_t + slave.offset_ms)
             drift = slave.backend.position_ms() - target
             size = abs(drift)
             if size > cfg.reseek_drift_ms:

@@ -21,7 +21,11 @@ class FakeTime:
 
 
 class FakeBackend:
-    """Simulated playback engine. While playing, its position follows the shared FakeTime."""
+    """Simulated playback engine. While playing, its position follows the shared FakeTime.
+
+    Position and seek targets are clamped to [0, duration] when a duration is set, like a
+    real backend that stops at EOF.
+    """
 
     def __init__(
         self,
@@ -39,11 +43,17 @@ class FakeBackend:
         self.playing = False
         self.rate = 1.0
         self.muted = False
-        self.seeks: list[float] = []
+        self.seeks: list[float] = []  # requested media targets, before clamping
         self.rates: list[float] = []
         self.mute_calls: list[bool] = []
         self._base = start_ms
         self._anchor = time.t
+
+    def _clamp(self, ms: float) -> float:
+        clamped = max(0.0, ms)
+        if self.duration is not None:
+            clamped = min(clamped, self.duration)
+        return clamped
 
     def _raw(self) -> float:
         if not self.playing:
@@ -56,11 +66,11 @@ class FakeBackend:
         self._anchor = self.time.t
 
     def position_ms(self) -> float:
-        """Reported media position (quantized when `step_ms` is set)."""
+        """Reported media position (quantized when `step_ms` is set, clamped to duration)."""
         raw = self._raw()
         if self.step_ms > 0:
-            return math.floor(raw / self.step_ms) * self.step_ms
-        return raw
+            raw = math.floor(raw / self.step_ms) * self.step_ms
+        return self._clamp(raw)
 
     def duration_ms(self) -> float | None:
         """Media duration, or None when unknown."""
@@ -77,9 +87,9 @@ class FakeBackend:
         self.playing = False
 
     def seek(self, media_ms: float) -> None:
-        """Jump to a media position and record it."""
+        """Jump to a media position (clamped to [0, duration]) and record the request."""
         self.seeks.append(media_ms)
-        self._base = media_ms
+        self._base = self._clamp(media_ms)
         self._anchor = self.time.t
 
     def set_rate(self, rate: float) -> None:

@@ -12,6 +12,9 @@ from elan_ng.media.service import MediaService
 
 TickListener = Callable[[float], None]
 
+# A master position this close to its end counts as reached EOF.
+_EOF_TOLERANCE_MS = 1.0
+
 
 class MediaClock:
     """Document time while playing (extrapolated from the master) or paused (frozen)."""
@@ -50,40 +53,32 @@ class MediaClock:
         if not self.playing:
             return self._t
         master_t = self.service.document_position_ms()
-        low = master_t - self.frame_ms
-        high = master_t + self.frame_ms
         if master_t != self._last_pos:
-            # New backend report: re-anchor on the old extrapolation (clamped), not on the
+            # New backend report: re-anchor on the old extrapolation (bounded), not on the
             # report itself, so a lagging report cannot pull the clock backwards.
             self._last_pos = master_t
-            self._set_anchor(min(max(self._extrapolate(), low), high))
-        t = min(max(self._extrapolate(), low), high)
+            self._set_anchor(self._bounded(self._extrapolate(), master_t))
+        t = self._bounded(self._extrapolate(), master_t)
         if self._last_returned is not None:
             t = max(t, self._last_returned)
         self._last_returned = t
         return t
 
-    def _extrapolate(self) -> float:
-        elapsed_ms = (self._now() - self._anchor_wall) * 1000.0
-        return self._anchor_t + elapsed_ms * self.rate
-
     def tick(self) -> float:
-        """Advance one display frame: apply selection rules and notify listeners while playing."""
+        """Advance one display frame: apply selection and end-of-media rules, then notify."""
         if not self.playing:
             return self._t
         t = self.time_ms()
         end = self.selection_end
+        duration = self.service.duration_ms()
         if end is not None and t >= end:
             if self.loop_start is not None:
                 t = self.loop_start
                 self._jump(t)
             else:
-                self.playing = False
-                self.service.pause()
-                self._jump(end)
-                self.selection_end = None
-                self.loop_start = None
-                t = end
+                t = self._stop_at(end)
+        elif duration is not None and t >= duration:
+            t = self._stop_at(duration)
         self._t = t
         self._notify(t)
         return t
@@ -126,18 +121,46 @@ class MediaClock:
         self.service.set_rate(rate)
 
     def play_selection(self, begin_ms: float, end_ms: float, loop: bool = False) -> None:
-        """Seek to `begin_ms` and play until `end_ms`, pausing there or looping back."""
-        if end_ms <= begin_ms:
-            raise ValueError(f"selection end {end_ms} must be after begin {begin_ms}")
-        self.seek(begin_ms)
-        self.selection_end = end_ms
-        self.loop_start = begin_ms if loop else None
+        """Seek to `begin_ms` and play until `end_ms`, pausing there or looping back.
+
+        Both endpoints are clamped to [0, document duration] first. Raises ValueError, and
+        changes no state, if the clamped range is empty.
+        """
+        duration = self.service.duration_ms()
+        begin = max(0.0, begin_ms)
+        end = max(0.0, end_ms)
+        if duration is not None:
+            begin = min(begin, duration)
+            end = min(end, duration)
+        if end <= begin:
+            raise ValueError(f"selection {begin_ms}..{end_ms} is empty within the media")
+        self.seek(begin)
+        self.selection_end = end
+        self.loop_start = begin if loop else None
         self.play()
 
     def stop_selection(self) -> None:
         """Clear the selection and loop state; playback continues."""
         self.selection_end = None
         self.loop_start = None
+
+    def _extrapolate(self) -> float:
+        elapsed_ms = (self._now() - self._anchor_wall) * 1000.0
+        return self._anchor_t + elapsed_ms * self.rate
+
+    def _bounded(self, t: float, master_t: float) -> float:
+        """Clamp `t` to one frame around the master, unless the master has ended early."""
+        if not self._master_is_valid(master_t):
+            return t
+        return min(max(t, master_t - self.frame_ms), master_t + self.frame_ms)
+
+    def _master_is_valid(self, master_t: float) -> bool:
+        """False once the master is at its EOF while the document is longer than the master."""
+        master_end = self.service.master_end_ms()
+        if master_end is None or master_t < master_end - _EOF_TOLERANCE_MS:
+            return True
+        doc_end = self.service.duration_ms()
+        return doc_end is None or doc_end <= master_end
 
     def _set_anchor(self, t: float) -> None:
         self._anchor_t = t
@@ -150,6 +173,15 @@ class MediaClock:
         self._last_returned = None
         self._set_anchor(doc_ms)
         self._last_pos = self.service.document_position_ms()
+
+    def _stop_at(self, doc_ms: float) -> float:
+        """Pause at `doc_ms` (selection end or document end) and clear the selection."""
+        self.playing = False
+        self.service.pause()
+        self._jump(doc_ms)
+        self.selection_end = None
+        self.loop_start = None
+        return doc_ms
 
     def _notify(self, t: float) -> None:
         for cb in list(self._listeners):

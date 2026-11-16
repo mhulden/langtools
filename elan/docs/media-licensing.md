@@ -28,12 +28,25 @@ Findings:
   LGPL code), and our test fixtures encode with FFmpeg's built-in `mpeg4` encoder, not libx264.
   So nothing we run needs them.
 
+## macOS floor (owner decision, 2026-11-16)
+
+Every PyAV release from 16.0 on has only a macOS 14+ wheel for Apple Silicon (15.x needs 13). The
+last release with macOS 12 wheels for both architectures, 14.2.0, bundles FFmpeg 7.1 built with
+`--enable-gpl` ("GPL version 3 or later"). So no PyPI wheel gives both macOS 12 on Apple
+Silicon and an LGPL FFmpeg. mhulden chose **option B**:
+
+- Development and CI use PyAV 19 from PyPI. On Apple Silicon that means macOS 14+ for
+  development. Intel Macs work from macOS 12.
+- The shipped app still supports macOS 12+ (§1) on both architectures. Before media goes into a
+  distributed package, we build our own LGPL-only FFmpeg/PyAV with a macOS 12 deployment target
+  (issue #28, with an artifact audit in CI).
+
 ## Consequences
 
 1. Development and CI: no problem. We install the wheel and use only LGPL decoding.
-2. Packaging (installers, M5): before the first release, either drop the `libx264`/`libx265`
-   shared libraries from the bundle (we never load their encoders), or build PyAV against an
-   LGPL-only FFmpeg. Ship the FFmpeg LGPL text and a source offer with the bundle in either case.
+2. Packaging (installers, M5): the PyPI wheel is never bundled. The package job uses the
+   LGPL-only FFmpeg/PyAV build from issue #28 (no `libx264`/`libx265` or other GPL libraries) and
+   ships the FFmpeg LGPL text and a source offer.
 3. The macOS (`macosx_14_0_arm64`) and Linux (`manylinux_2_28_x86_64`) wheels of the same
    release also bundle `libx264` and `libx265` (checked by listing the wheel contents, not by
    importing them). Not yet checked: Qt Multimedia's own FFmpeg (C5), so the §8.3 [VERIFY]
