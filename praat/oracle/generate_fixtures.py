@@ -11,6 +11,8 @@ import struct
 import wave
 from pathlib import Path
 
+from oracle.kinds import SPECTROGRAM, get_kind, require_kind
+
 RATE = 22050
 DURATION = 0.12
 SEED = 1701
@@ -92,11 +94,15 @@ def generate(output: Path) -> dict:
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
-        "--output", type=Path, default=Path(__file__).resolve().parent / "generated"
+        "--kind", default=SPECTROGRAM.name, help="analysis kind (default: %(default)s)"
     )
+    parser.add_argument("--output", type=Path, help="default: generated/ (generated-<kind>/)")
     args = parser.parse_args()
-    meta = generate(args.output)
-    print(f"Generated {len(meta['files'])} original fixtures in {args.output}")
+    kind = get_kind(args.kind)
+    output = args.output or kind.directory("generated")
+    meta = kind.hook("generate")(output)
+    require_kind(meta, kind, "Generated fixture manifest")
+    print(f"Generated {len(meta['files'])} original fixtures in {output}")
 
 
 if __name__ == "__main__":

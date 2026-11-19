@@ -42,6 +42,17 @@
 
 **Important limitation:** The `short_invalid` 8 ms signal is expected to fail a 10 ms physical Gaussian window; the runner records the actual result and does not turn failure into a pass automatically. Stereo is exported by the candidate for left/right/combined but the simple Praat `To Spectrogram` command may combine channels by a different rule; treat the latter as an open reference question, not verified parity. Display defaults are still **candidates**; raw Spectrogram text alone does not prove editor or Paint defaults. To resolve D04, record GUI dialogs/screenshots or use an explicit script/GUI oracle separately and describe the evidence.
 
+## Analysis kinds (issue #34)
+
+`oracle/kinds.py` registers one record per analysis kind: default settings, reference output suffix, and hooks for fixture generation, the Praat script, candidate export, per-capture comparison, the provenance candidate file and the report. Every CLI takes `--kind` (default `spectrogram`).
+
+- **Spectrogram is the legacy kind.** Its manifests, evidence, candidate files, comparisons and report are byte-identical to the pre-registry output and carry no `kind` field. Data without `kind` is read as spectrogram.
+- **Every other kind** writes an explicit normalized `kind` first in its manifest, evidence, candidate identity and comparison. Because it is inside the evidence object, it is bound into `oracle_evidence_sha256`.
+- **Cross-kind reuse is rejected:** the runner checks the manifest kind, `compare` checks the evidence kind against `--kind`, the spectrogram comparison rejects candidates of another kind, and `render` rejects evidence or comparisons of another kind. Unknown or non-canonical kind strings are errors.
+- **Separate namespaces:** non-legacy kinds default to `generated-<kind>/`, `captures-<kind>/`, `candidate-<kind>/` and `comparison-<kind>.json`, all Git-ignored.
+
+Only `spectrogram` is registered so far; Intensity is #34 step B.
+
 ## Maintainer workflow
 
 Create a scoped issue and draft PR first, linking #17 and asking @Comet-Chaser-99 to agree fixture schema and comparison tolerances. Do not commit copyrighted/restricted recordings or downloaded Praat executables. Commit the generator, runner, comparator, test and verification docs only; generated outputs are ignored until reviewed for size/privacy and reproducibility.

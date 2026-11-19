@@ -24,21 +24,16 @@ from langtools_praat.analysis.contracts import (
 from langtools_praat.analysis.spectrogram import DisplaySettings, display, to_spectrogram
 from langtools_praat.model.sound import Sound
 from langtools_praat.model.time import SampledAxis
+from oracle.kinds import SPECTROGRAM, get_kind, require_kind
 
 HERE = Path(__file__).resolve().parent
 
 
 # These are the imported Python modules that define the candidate analysis path.
-_SOURCE_MODULES = (
-    "langtools_praat.analysis.spectrogram",
-    "langtools_praat.analysis.contracts",
-    "langtools_praat.model.sound",
-    "langtools_praat.model.time",
-    "langtools_praat.errors",
-)
+_SOURCE_MODULES = SPECTROGRAM.candidate_modules
 
 
-def candidate_source_identity() -> dict:
+def candidate_source_identity(modules: tuple[str, ...] = _SOURCE_MODULES) -> dict:
     """Fingerprint imported implementation files at export time, not compare time.
 
     Git HEAD is reported only as repository context. A clean status requires
@@ -50,7 +45,7 @@ def candidate_source_identity() -> dict:
     modified = False
     unversioned = False
 
-    for name in _SOURCE_MODULES:
+    for name in modules:
         module = importlib.import_module(name)
         module_file = Path(module.__file__).resolve()
         digest = hashlib.sha256(module_file.read_bytes()).hexdigest()
@@ -131,6 +126,7 @@ def axis_dict(axis) -> dict:
 def export(inputs: Path, output: Path) -> None:
     manifest_bytes = (inputs / "manifest.json").read_bytes()
     manifest = json.loads(manifest_bytes)
+    require_kind(manifest, SPECTROGRAM, "Fixture manifest")
     manifest_sha256 = hashlib.sha256(manifest_bytes).hexdigest()
     source_identity = candidate_source_identity()
     output.mkdir(parents=True, exist_ok=True)
@@ -200,10 +196,16 @@ def export(inputs: Path, output: Path) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--inputs", type=Path, default=HERE / "generated")
-    parser.add_argument("--output", type=Path, default=HERE / "candidate")
+    parser.add_argument(
+        "--kind", default=SPECTROGRAM.name, help="analysis kind (default: %(default)s)"
+    )
+    parser.add_argument("--inputs", type=Path, help="default: generated/ (generated-<kind>/)")
+    parser.add_argument("--output", type=Path, help="default: candidate/ (candidate-<kind>/)")
     args = parser.parse_args()
-    export(args.inputs, args.output)
+    kind = get_kind(args.kind)
+    kind.hook("export")(
+        args.inputs or kind.directory("generated"), args.output or kind.directory("candidate")
+    )
 
 
 if __name__ == "__main__":

@@ -12,6 +12,8 @@ import math
 import re
 from pathlib import Path
 
+from oracle.kinds import SPECTROGRAM, get_kind, kind_of, require_kind, stamp
+
 HERE = Path(__file__).resolve().parent
 NUMBER = r"[-+]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][-+]?\d+)?"
 CELL = re.compile(rf"^\s*z\s*\[\s*(\d+)\s*\]\s*\[\s*(\d+)\s*\]\s*=\s*({NUMBER})\s*$")
@@ -114,7 +116,14 @@ def _candidate_json(path: Path) -> dict:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
-def _valid_candidate_source(source: object) -> bool:
+def spectrogram_candidate_file(name: str) -> str:
+    """Candidate file whose provenance stands for a spectrogram fixture."""
+    return name + ("_combined" if name == "stereo_different" else "") + ".json"
+
+
+def _valid_candidate_source(
+    source: object, required_module: str = SPECTROGRAM.primary_module
+) -> bool:
     """Validate generation-time metadata before using it as provenance."""
     if not isinstance(source, dict):
         return False
@@ -130,7 +139,7 @@ def _valid_candidate_source(source: object) -> bool:
     if source["source_status"] == "clean" and commit is None:
         return False
     hashes = source.get("modules_sha256")
-    if not isinstance(hashes, dict) or "langtools_praat.analysis.spectrogram" not in hashes:
+    if not isinstance(hashes, dict) or required_module not in hashes:
         return False
     if not all(
         isinstance(name, str) and isinstance(digest, str) and re.fullmatch(r"[0-9a-f]{64}", digest)
@@ -140,7 +149,9 @@ def _valid_candidate_source(source: object) -> bool:
     return isinstance(source.get("numpy_version"), str)
 
 
-def verified_candidate_source(fixtures: list[dict]) -> dict | None:
+def verified_candidate_source(
+    fixtures: list[dict], required_module: str = SPECTROGRAM.primary_module
+) -> dict | None:
     """Accept one consistent source only when every required comparison succeeded."""
     if not fixtures:
         return None
@@ -152,7 +163,7 @@ def verified_candidate_source(fixtures: list[dict]) -> dict | None:
         if any(c.get("status") not in {"match", "discrepancy"} for c in checks.values()):
             return None
         source = entry.get("candidate_source")
-        if not _valid_candidate_source(source):
+        if not _valid_candidate_source(source, required_module):
             return None
         sources.append(source)
     return sources[0] if all(source == sources[0] for source in sources) else None
@@ -162,6 +173,17 @@ def _validate_candidate(entry: dict, candidate: dict, *, channel: str, manifest_
     """Reject results from another fixture, channel, input or analysis configuration."""
     if not isinstance(candidate, dict):
         return {"status": "candidate_identity_mismatch", "field": "JSON object"}
+    try:
+        candidate_kind = kind_of(candidate)
+    except ValueError:
+        candidate_kind = candidate.get("kind")
+    if candidate_kind != SPECTROGRAM.name:
+        return {
+            "status": "candidate_identity_mismatch",
+            "field": "kind",
+            "expected": SPECTROGRAM.name,
+            "actual": candidate_kind,
+        }
 
     input_hash = entry.get("input_sha256")
     if not isinstance(input_hash, str) or not re.fullmatch(r"[0-9a-f]{64}", input_hash):
@@ -300,13 +322,31 @@ def compare_capture(
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--oracle", type=Path, default=HERE / "captures")
-    parser.add_argument("--candidate", type=Path, default=HERE / "candidate")
-    parser.add_argument("--output", type=Path, default=HERE / "comparison.json")
+    parser.add_argument(
+        "--kind", default=SPECTROGRAM.name, help="analysis kind (default: %(default)s)"
+    )
+    parser.add_argument("--oracle", type=Path, help="default: captures/ (captures-<kind>/)")
+    parser.add_argument("--candidate", type=Path, help="default: candidate/ (candidate-<kind>/)")
+    parser.add_argument(
+        "--output", type=Path, help="default: comparison.json (comparison-<kind>.json)"
+    )
     parser.add_argument("--atol", type=float, default=1e-9)
     parser.add_argument("--rtol", type=float, default=1e-4)
     args = parser.parse_args()
+    try:
+        kind = get_kind(args.kind)
+    except ValueError as exc:
+        parser.error(str(exc))
+    args.oracle = args.oracle or kind.directory("captures")
+    args.candidate = args.candidate or kind.directory("candidate")
+    args.output = args.output or kind.comparison_path()
     captures = json.loads((args.oracle / "evidence.json").read_text(encoding="utf-8"))
+    try:
+        require_kind(captures, kind, "Reference evidence")
+    except ValueError as exc:
+        parser.error(str(exc))
+    compare_kind_capture = kind.hook("compare_capture")
+    candidate_file = kind.hook("candidate_file")
     results = {
         "schema": "langtools-praat-comparison/v2",
         "oracle_evidence": str(args.oracle / "evidence.json"),
@@ -316,9 +356,10 @@ def main() -> None:
         "tolerances": {"absolute": args.atol, "relative": args.rtol},
         "fixtures": [],
     }
+    results = stamp(results, kind)
     for entry in captures["runs"]:
         try:
-            data = compare_capture(
+            data = compare_kind_capture(
                 entry,
                 args.oracle,
                 args.candidate,
@@ -333,11 +374,9 @@ def main() -> None:
     for item in results["fixtures"]:
         if item["status"] not in {"match", "expected_error_match"}:
             continue
-        name = item["fixture"]
-        is_stereo = name == "stereo_different"
-        filename = name + ("_combined" if is_stereo else "") + ".json"
+        filename = candidate_file(item["fixture"])
         item["candidate_source"] = _candidate_json(args.candidate / filename)["candidate_source"]
-    recorded_source = verified_candidate_source(results["fixtures"])
+    recorded_source = verified_candidate_source(results["fixtures"], kind.primary_module)
     results["candidate_source"] = recorded_source
     results["candidate_commit"] = (
         recorded_source["git_commit"]

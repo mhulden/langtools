@@ -11,14 +11,10 @@ import subprocess
 import sys
 from pathlib import Path
 
+from oracle.kinds import SPECTROGRAM, OracleKind, get_kind, require_kind, stamp
+
 HERE = Path(__file__).resolve().parent
-SETTINGS = {
-    "window_length_s": 0.005,
-    "maximum_frequency_hz": 5000.0,
-    "time_step_s": 0.002,
-    "frequency_step_hz": 20.0,
-    "window_shape": "Gaussian",
-}
+SETTINGS = dict(SPECTROGRAM.settings)
 
 
 def hash_file(path: Path) -> str:
@@ -92,7 +88,14 @@ def script_for(inp: Path, out: Path, settings: dict) -> str:
     )
 
 
-def run(praat: Path, pin_path: Path, inputs: Path, output: Path, timeout: int) -> dict:
+def run(
+    praat: Path,
+    pin_path: Path,
+    inputs: Path,
+    output: Path,
+    timeout: int,
+    kind: OracleKind = SPECTROGRAM,
+) -> dict:
     if not praat.is_file():
         raise FileNotFoundError(f"Praat executable missing: {praat}")
     pinned = json.loads(pin_path.read_text(encoding="utf-8"))
@@ -102,6 +105,9 @@ def run(praat: Path, pin_path: Path, inputs: Path, output: Path, timeout: int) -
             "Praat binary SHA256 changed since pinning; revalidate or re-pin deliberately"
         )
     manifest = json.loads((inputs / "manifest.json").read_text(encoding="utf-8"))
+    require_kind(manifest, kind, "Fixture manifest")
+    defaults = dict(kind.settings)
+    script_for_kind = kind.hook("script_for")
     output.mkdir(parents=True, exist_ok=True)
     temp = output / "scripts"
     temp.mkdir(exist_ok=True)
@@ -111,22 +117,28 @@ def run(praat: Path, pin_path: Path, inputs: Path, output: Path, timeout: int) -
         "reference_pin": pinned,
         "reference_current_sha256": actual,
         "source_commit": project_commit(),
-        "pr17_head_when_scoped": "10d648d5ab183f3ca38e67558306878d7e98092f",
-        "os": platform.platform(),
-        "cpu": platform.machine(),
-        "python": platform.python_version(),
-        "settings": SETTINGS,
-        "fixture_manifest_sha256": hash_file(inputs / "manifest.json"),
-        "runs": [],
     }
+    if kind.legacy:
+        evidence["pr17_head_when_scoped"] = "10d648d5ab183f3ca38e67558306878d7e98092f"
+    evidence.update(
+        {
+            "os": platform.platform(),
+            "cpu": platform.machine(),
+            "python": platform.python_version(),
+            "settings": defaults,
+            "fixture_manifest_sha256": hash_file(inputs / "manifest.json"),
+            "runs": [],
+        }
+    )
+    evidence = stamp(evidence, kind)
     for entry in manifest["files"]:
         inp = inputs / entry["file"]
         if hash_file(inp) != entry["sha256"]:
             raise RuntimeError(f"Fixture changed since generation: {inp}")
-        settings = {**SETTINGS, **entry.get("settings_override", {})}
-        dest = output / (entry["name"] + ".Spectrogram")
+        settings = {**defaults, **entry.get("settings_override", {})}
+        dest = output / (entry["name"] + kind.output_suffix)
         script = temp / (entry["name"] + ".praat")
-        script.write_text(script_for(inp, dest, settings), encoding="utf-8")
+        script.write_text(script_for_kind(inp, dest, settings), encoding="utf-8")
         if dest.exists():
             dest.unlink()
         cmd = [str(praat.resolve()), "--run", str(script.resolve())]
@@ -168,17 +180,23 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("action", choices=["pin", "capture"])
     parser.add_argument(
+        "--kind", default=SPECTROGRAM.name, help="analysis kind (default: %(default)s)"
+    )
+    parser.add_argument(
         "--praat", type=Path, default=Path("/Applications/Praat.app/Contents/MacOS/Praat")
     )
     parser.add_argument("--pin", type=Path, default=HERE / "local_reference_pin.json")
-    parser.add_argument("--inputs", type=Path, default=HERE / "generated")
-    parser.add_argument("--output", type=Path, default=HERE / "captures")
+    parser.add_argument("--inputs", type=Path, help="default: generated/ (generated-<kind>/)")
+    parser.add_argument("--output", type=Path, help="default: captures/ (captures-<kind>/)")
     parser.add_argument("--timeout", type=int, default=90)
     args = parser.parse_args()
+    kind = get_kind(args.kind)
     if args.action == "pin":
         pin(args.praat, args.pin)
     else:
-        run(args.praat, args.pin, args.inputs, args.output, args.timeout)
+        inputs = args.inputs or kind.directory("generated")
+        output = args.output or kind.directory("captures")
+        run(args.praat, args.pin, inputs, output, args.timeout, kind)
 
 
 if __name__ == "__main__":

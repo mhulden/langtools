@@ -11,6 +11,7 @@ import json
 from pathlib import Path
 
 from oracle.compare import evidence_sha256
+from oracle.kinds import SPECTROGRAM, get_kind, require_kind
 
 HERE = Path(__file__).resolve().parent
 
@@ -20,6 +21,8 @@ def _number(value: object) -> str:
 
 
 def render(evidence: dict, comparison: dict) -> str:
+    require_kind(evidence, SPECTROGRAM, "Reference evidence")
+    require_kind(comparison, SPECTROGRAM, "Comparison")
     expected_digest = comparison.get("oracle_evidence_sha256")
     if not isinstance(expected_digest, str) or expected_digest != evidence_sha256(evidence):
         raise ValueError(
@@ -174,15 +177,26 @@ def render(evidence: dict, comparison: dict) -> str:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--evidence", type=Path, default=HERE / "captures" / "evidence.json")
-    parser.add_argument("--comparison", type=Path, default=HERE / "comparison.json")
-    parser.add_argument("--output", type=Path, default=HERE / "docs" / "OBSERVED_RESULTS.md")
+    parser.add_argument(
+        "--kind", default=SPECTROGRAM.name, help="analysis kind (default: %(default)s)"
+    )
+    parser.add_argument("--evidence", type=Path, help="default: captures[-<kind>]/evidence.json")
+    parser.add_argument("--comparison", type=Path, help="default: comparison[-<kind>].json")
+    parser.add_argument(
+        "--output", type=Path, help="default: docs/OBSERVED_RESULTS.md (OBSERVED_RESULTS-<kind>.md)"
+    )
     args = parser.parse_args()
-    evidence = json.loads(args.evidence.read_text(encoding="utf-8"))
-    comparison = json.loads(args.comparison.read_text(encoding="utf-8"))
-    args.output.parent.mkdir(parents=True, exist_ok=True)
-    args.output.write_text(render(evidence, comparison), encoding="utf-8")
-    print(f"Report ready: {args.output}")
+    kind = get_kind(args.kind)
+    evidence_path = args.evidence or kind.directory("captures") / "evidence.json"
+    comparison_path = args.comparison or kind.comparison_path()
+    output = args.output or HERE / "docs" / (
+        "OBSERVED_RESULTS.md" if kind.legacy else f"OBSERVED_RESULTS-{kind.name}.md"
+    )
+    evidence = json.loads(evidence_path.read_text(encoding="utf-8"))
+    comparison = json.loads(comparison_path.read_text(encoding="utf-8"))
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_text(kind.hook("render")(evidence, comparison), encoding="utf-8")
+    print(f"Report ready: {output}")
 
 
 if __name__ == "__main__":
