@@ -9,7 +9,9 @@ from __future__ import annotations
 
 import copy
 import uuid
+from collections import Counter
 from collections.abc import Callable
+from itertools import pairwise
 from pathlib import Path
 
 from elan_ng.core.model import (
@@ -38,6 +40,8 @@ from elan_ng.core.model import (
     TierType,
     TimeSlot,
 )
+from elan_ng.core.structure import analyze
+from elan_ng.core.validate import Problem, Severity, validate
 from elan_ng.io.xmlutil import (
     Element,
     keep_text_residue,
@@ -57,18 +61,160 @@ class EAFError(ValueError):
     """The file is not an EAF document we can read."""
 
 
-def read_eaf(path: str | Path) -> Document:
-    return parse_eaf(Path(path).read_bytes())
+def read_eaf(path: str | Path, *, diagnostics: list[Problem] | None = None) -> Document:
+    return parse_eaf(Path(path).read_bytes(), diagnostics=diagnostics)
 
 
-def parse_eaf(data: bytes) -> Document:
+def parse_eaf(data: bytes, *, diagnostics: list[Problem] | None = None) -> Document:
+    """Load EAF, normalizing safe alignable-tier order before edits begin.
+
+    Only otherwise valid, fully resolved documents are normalized. Unused slots are
+    preserved and do not block ordering. Malformed/ambiguous documents retain their
+    original order. An optional diagnostics list receives validation findings and a
+    warning for each normalized tier. Reference-tier order and residue anchors stay
+    as imported; residue inside an annotation travels with that annotation.
+    """
     try:
         root = parse(data)
     except Exception as exc:  # lxml raises XMLSyntaxError; keep the message
         raise EAFError(f"not well-formed XML: {exc}") from exc
     if root.tag != "ANNOTATION_DOCUMENT":
         raise EAFError(f"root element is {root.tag!r}, expected 'ANNOTATION_DOCUMENT'")
-    return _Reader().document(root)
+    doc = _Reader().document(root)
+    _normalize_annotation_order(doc, diagnostics)
+    return doc
+
+
+def _order_problems(doc: Document) -> list[Problem]:
+    """Conservative import gate; do not guess how to repair invalid time/parent data."""
+    problems: list[Problem] = []
+    for slot_id, count in Counter(s.id for s in doc.time_order).items():
+        if count > 1:
+            problems.append(
+                Problem(
+                    "duplicate-slot-id",
+                    Severity.ERROR,
+                    "ambiguous time slot id",
+                    (slot_id,),
+                )
+            )
+    for slot in doc.time_order:
+        if "TIME_VALUE" in slot.residue.attrs or (slot.value is not None and slot.value < 0):
+            problems.append(
+                Problem(
+                    "invalid-time-value",
+                    Severity.ERROR,
+                    "invalid time slot value",
+                    (slot.id,),
+                )
+            )
+    if problems:
+        return problems
+    by_id = {t.id: t for t in doc.tiers}
+    checked: set[str] = set()
+    for tier in doc.tiers:
+        path: set[str] = set()
+        current: Tier | None = tier
+        while current is not None and current.id not in checked:
+            if current.id in path:
+                problems.append(
+                    Problem(
+                        "tier-cycle",
+                        Severity.ERROR,
+                        "cyclic tier ancestry",
+                        (current.id,),
+                    )
+                )
+                break
+            path.add(current.id)
+            current = by_id.get(current.parent_ref) if current.parent_ref is not None else None
+        checked.update(path)
+    if problems:
+        return problems
+    try:
+        structure = analyze(doc)
+        problems.extend(validate(doc, structure))
+    except (OverflowError, RecursionError) as exc:
+        return [Problem("normalization-skipped", Severity.ERROR, str(exc))]
+    positions = {slot: i for i, slot in enumerate(doc.time_order)}
+    for tier in doc.tiers:
+        for annotation in tier.annotations:
+            parent = structure.parent.get(annotation)
+            if parent is not None and structure.tier_of[parent].id != tier.parent_ref:
+                problems.append(
+                    Problem(
+                        "wrong-parent-tier",
+                        Severity.ERROR,
+                        "annotation refers to a parent on the wrong tier",
+                        (annotation.id,),
+                    )
+                )
+            if annotation not in structure.times:
+                problems.append(
+                    Problem(
+                        "unresolved-time",
+                        Severity.ERROR,
+                        "annotation time is unresolved",
+                        (annotation.id,),
+                    )
+                )
+            if (
+                isinstance(annotation, AlignableAnnotation)
+                and doc.stereotype_of(tier) in (None, Stereotype.INCLUDED_IN)
+                and (annotation.begin.value is None or annotation.end.value is None)
+            ):
+                problems.append(
+                    Problem(
+                        "unaligned-boundary",
+                        Severity.ERROR,
+                        "root or Included In annotation has an unaligned boundary",
+                        (annotation.id,),
+                    )
+                )
+            if isinstance(annotation, AlignableAnnotation) and (
+                positions.get(annotation.begin, -1) >= positions.get(annotation.end, -1)
+            ):
+                problems.append(
+                    Problem(
+                        "slot-order",
+                        Severity.ERROR,
+                        "begin slot does not precede end slot",
+                        (annotation.id,),
+                    )
+                )
+    return problems
+
+
+def _normalize_annotation_order(doc: Document, diagnostics: list[Problem] | None) -> None:
+    positions = {slot: i for i, slot in enumerate(doc.time_order)}
+    candidates: list[tuple[Tier, list[AlignableAnnotation]]] = []
+    for tier in doc.tiers:
+        annotations = [a for a in tier.annotations if isinstance(a, AlignableAnnotation)]
+        if len(annotations) != len(tier.annotations):
+            continue  # reference-only and malformed mixed tiers keep their imported order
+        if any(a > b for a, b in pairwise(positions.get(a.begin, -1) for a in annotations)):
+            candidates.append((tier, annotations))
+    # Normal, already ordered reads retain their existing fast path. A requested
+    # report still checks the input, even when no normalization is needed.
+    if not candidates and diagnostics is None:
+        return
+    problems = _order_problems(doc)
+    if diagnostics is not None:
+        diagnostics.extend(problems)
+    if any(p.code != "unused-slot" for p in problems):
+        return
+    for tier, annotations in candidates:
+        ordered = sorted(annotations, key=lambda a: positions[a.begin])
+        tier.annotations[:] = ordered
+        if diagnostics is not None:
+            diagnostics.append(
+                Problem(
+                    "annotation-order-normalized",
+                    Severity.WARNING,
+                    "alignable annotations normalized by begin-slot order",
+                    (tier.id,),
+                )
+            )
 
 
 class _Reader:
