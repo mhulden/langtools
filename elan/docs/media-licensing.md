@@ -39,7 +39,8 @@ Silicon and an LGPL FFmpeg. mhulden chose **option B**:
   development. Intel Macs work from macOS 12.
 - The shipped app still supports macOS 12+ (§1) on both architectures. Before media goes into a
   distributed package, we build our own LGPL-only FFmpeg/PyAV with a macOS 12 deployment target
-  (issue #28, with an artifact audit in CI).
+  (issue #28, with an artifact audit in CI). The spec records this as §8.4 decision 6, and §8.3 now
+  summarizes these findings.
 
 ## Consequences
 
