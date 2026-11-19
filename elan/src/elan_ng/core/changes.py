@@ -9,6 +9,7 @@ the starting state, whether planning succeeds or raises.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from itertools import pairwise
 from types import TracebackType
 from typing import Protocol, TypeVar
 
@@ -91,9 +92,24 @@ def check_invariants(doc: Document) -> None:
         for a in doc.annotations()
         if isinstance(a, AlignableAnnotation)
     )
-    if problems or reversed_slots:
-        details = ", ".join(p.code for p in problems)
-        raise ChangeConflict(f"document invariants failed: {details or 'slot-order'}")
+    unordered_annotations = any(
+        first > second
+        for tier in doc.tiers
+        for first, second in pairwise(
+            [
+                positions.get(a.begin, -1)
+                for a in tier.annotations
+                if isinstance(a, AlignableAnnotation)
+            ]
+        )
+    )
+    details = [p.code for p in problems]
+    if reversed_slots:
+        details.append("slot-order")
+    if unordered_annotations:
+        details.append("annotation-order")
+    if details:
+        raise ChangeConflict(f"document invariants failed: {', '.join(details)}")
 
 
 @dataclass(frozen=True)

@@ -17,7 +17,8 @@ from elan_ng.core.model import (
 )
 from elan_ng.core.structure import analyze
 from elan_ng.core.undo import UndoStack
-from elan_ng.io.eaf_reader import read_eaf
+from elan_ng.io.eaf_reader import parse_eaf, read_eaf
+from elan_ng.io.eaf_writer import write_eaf
 
 from .helpers import simple, snapshot
 from support import DATA
@@ -310,3 +311,71 @@ def test_malformed_input_is_rejected_without_repairing_or_dropping_data(problem:
     with pytest.raises(EditRejected, match="precondition"):
         ConstraintEngine(doc).clear_value("a1")
     assert snapshot(doc) == before
+
+
+@pytest.mark.parametrize("kind", ["root", "included", "shared-root"])
+@pytest.mark.parametrize("target,begin,end", [("a1", 500, 600), ("a2", 0, 50)])
+def test_M1_jump_over_sibling_preserves_tier_order_and_exact_undo(
+    kind: str,
+    target: str,
+    begin: int,
+    end: int,
+) -> None:
+    doc = simple()
+    ConstraintEngine(doc).create("root", 300, 400).apply(doc)
+    tier = doc.tiers[0]
+    first, second = tier.annotations
+    assert isinstance(first, AlignableAnnotation) and isinstance(second, AlignableAnnotation)
+    if kind == "included":
+        outer_begin, outer_end = TimeSlot("outer-begin", 0), TimeSlot("outer-end", 1000)
+        doc.time_order.insert(0, outer_begin)
+        doc.time_order.append(outer_end)
+        tier.parent_ref = "parent"
+        tier.type_ref = "included"
+        doc.tier_types.append(TierType("included", constraint=Stereotype.INCLUDED_IN))
+        doc.tiers.insert(
+            0,
+            Tier(
+                "parent",
+                "root",
+                annotations=[
+                    AlignableAnnotation("parent-ann", begin=outer_begin, end=outer_end),
+                ],
+            ),
+        )
+    elif kind == "shared-root":
+        doc.tiers.append(
+            Tier(
+                "shared",
+                "root",
+                annotations=[
+                    AlignableAnnotation("shared1", begin=first.begin, end=first.end),
+                    AlignableAnnotation("shared2", begin=second.begin, end=second.end),
+                ],
+            )
+        )
+    engine, stack = ConstraintEngine(doc), UndoStack(doc)
+    before = snapshot(doc)
+    changes = engine.retime(target, begin, end)
+    assert snapshot(doc) == before
+    changes.apply(doc)
+    after = snapshot(doc)
+    assert [a.id for a in tier.annotations] == ["a2", "a1"]
+    if kind == "shared-root":
+        assert [a.id for a in doc.tiers[-1].annotations] == ["shared2", "shared1"]
+    check_invariants(doc)
+    loaded = parse_eaf(write_eaf(doc))
+    loaded_tier = loaded.tier("root")
+    assert loaded_tier is not None
+    assert [a.id for a in loaded_tier.annotations] == ["a2", "a1"]
+    changes.inverse().apply(doc)
+    assert snapshot(doc) == before
+    stack.execute(changes)
+    assert snapshot(doc) == after
+    assert stack.undo() and snapshot(doc) == before
+    assert stack.redo() and snapshot(doc) == after
+    if kind != "included":
+        new_begin, new_end = (450, 475) if target == "a1" else (75, 95)
+        stack.execute(engine.create("root", new_begin, new_end, "inserted"))
+        assert [a.value for a in tier.annotations][1] == "inserted"
+        check_invariants(doc)

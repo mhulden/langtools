@@ -254,4 +254,17 @@ class ConstraintEngine:
             after = analyze(self.document)
             if before.parent != after.parent:
                 raise EditRejected("M3/M4", "retiming would reparent or trim descendants")
+            # Slot users on other tiers can move too. Record every changed position
+            # so both the edited tier and shared-slot users keep §3.1.3 order, while
+            # the inverse restores the exact original list objects and ordering.
+            positions = {slot: i for i, slot in enumerate(self.document.time_order)}
+            for affected_tier in self.document.tiers:
+                ordered = sorted(
+                    affected_tier.annotations,
+                    key=lambda a: positions[a.begin] if isinstance(a, AlignableAnnotation) else -1,
+                )
+                for index, existing in enumerate(ordered):
+                    if affected_tier.annotations[index] is not existing:
+                        recorder.remove(affected_tier.annotations, existing)
+                        recorder.insert(affected_tier.annotations, index, existing)
             return self._finish(recorder, "Change annotation time", "M1/M3-M6")

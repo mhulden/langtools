@@ -11,6 +11,7 @@ from elan_ng.core.changes import (
     Remove,
     SetAttribute,
 )
+from elan_ng.core.constraints import ConstraintEngine
 from elan_ng.core.model import Document, TimeSlot
 
 from .helpers import simple, snapshot
@@ -93,3 +94,22 @@ def test_recorder_lifecycle_and_noop() -> None:
         assert r.finish("No op").operations == ()
     with pytest.raises(ChangeConflict):
         r.finish("Too late")
+
+
+def test_unsorted_tier_is_an_invariant_failure_and_rolls_back() -> None:
+    doc = simple()
+    ConstraintEngine(doc).create("root", 300, 400).apply(doc)
+    before = snapshot(doc)
+    first, second = doc.tiers[0].annotations
+    changes = ChangeSet(
+        doc,
+        (
+            Remove(doc.tiers[0].annotations, 0, first, 2),
+            Insert(doc.tiers[0].annotations, 1, first, 1),
+        ),
+        checked=True,
+    )
+    with pytest.raises(ChangeConflict, match="annotation-order"):
+        changes.apply(doc)
+    assert snapshot(doc) == before
+    assert doc.tiers[0].annotations == [first, second]
