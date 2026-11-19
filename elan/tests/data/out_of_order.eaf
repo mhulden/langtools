@@ -1,0 +1,63 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- third-party annotation order; otherwise valid EAF -->
+<ANNOTATION_DOCUMENT AUTHOR="importer" DATE="2026-11-19T00:00:00+00:00" FORMAT="3.0" VERSION="3.0" FUTURE_ROOT="kept">
+    <HEADER MEDIA_FILE="" TIME_UNITS="milliseconds">
+        <PROPERTY NAME="URN">urn:test:out-of-order</PROPERTY>
+        <PROPERTY NAME="lastUsedAnnotationId">2</PROPERTY>
+    </HEADER>
+    <TIME_ORDER>
+        <TIME_SLOT TIME_SLOT_ID="ts0" TIME_VALUE="0"/>
+        <TIME_SLOT TIME_SLOT_ID="u"/>
+        <TIME_SLOT TIME_SLOT_ID="ts1" TIME_VALUE="100"/>
+        <TIME_SLOT TIME_SLOT_ID="ts2" TIME_VALUE="200"/>
+        <TIME_SLOT TIME_SLOT_ID="ts3" TIME_VALUE="300"/>
+        <TIME_SLOT TIME_SLOT_ID="ts4" TIME_VALUE="400"/>
+        <TIME_SLOT TIME_SLOT_ID="ts5" TIME_VALUE="1000"/>
+        <TIME_SLOT TIME_SLOT_ID="ts6" TIME_VALUE="1200"/>
+        <TIME_SLOT TIME_SLOT_ID="ts7" TIME_VALUE="1400"/>
+    </TIME_ORDER>
+    <TIER TIER_ID="root" LINGUISTIC_TYPE_REF="root" FUTURE_TIER="kept">
+        <ANNOTATION FUTURE_WRAPPER="late">
+            <ALIGNABLE_ANNOTATION ANNOTATION_ID="a2" TIME_SLOT_REF1="ts6" TIME_SLOT_REF2="ts7" FUTURE_ANN="late" LANG_REF="eng" EXT_REF="er1">
+                <ANNOTATION_VALUE FUTURE_VALUE="late"></ANNOTATION_VALUE>
+                <FUTURE_CHILD>late opaque payload</FUTURE_CHILD>
+            </ALIGNABLE_ANNOTATION>
+        </ANNOTATION>
+        <!-- keep this positional tier anchor between annotations -->
+        <FUTURE_TIER_CHILD>opaque tier payload</FUTURE_TIER_CHILD>
+        <ANNOTATION FUTURE_WRAPPER="early">
+            <ALIGNABLE_ANNOTATION ANNOTATION_ID="a1" TIME_SLOT_REF1="ts0" TIME_SLOT_REF2="ts5" SVG_REF="early.svg" FUTURE_ANN="early">
+                <ANNOTATION_VALUE FUTURE_VALUE="early">ñ &amp; &lt;hello&gt;
+second line</ANNOTATION_VALUE>
+                <FUTURE_CHILD>early opaque payload</FUTURE_CHILD>
+            </ALIGNABLE_ANNOTATION>
+        </ANNOTATION>
+    </TIER>
+    <TIER TIER_ID="included" LINGUISTIC_TYPE_REF="included" PARENT_REF="root">
+        <ANNOTATION><ALIGNABLE_ANNOTATION ANNOTATION_ID="c2" TIME_SLOT_REF1="ts3" TIME_SLOT_REF2="ts4"><ANNOTATION_VALUE>late</ANNOTATION_VALUE></ALIGNABLE_ANNOTATION></ANNOTATION>
+        <ANNOTATION><ALIGNABLE_ANNOTATION ANNOTATION_ID="c1" TIME_SLOT_REF1="ts1" TIME_SLOT_REF2="ts2"><ANNOTATION_VALUE>early</ANNOTATION_VALUE></ALIGNABLE_ANNOTATION></ANNOTATION>
+    </TIER>
+    <TIER TIER_ID="words" LINGUISTIC_TYPE_REF="words" PARENT_REF="root">
+        <ANNOTATION><ALIGNABLE_ANNOTATION ANNOTATION_ID="w2" TIME_SLOT_REF1="u" TIME_SLOT_REF2="ts5"><ANNOTATION_VALUE>second</ANNOTATION_VALUE></ALIGNABLE_ANNOTATION></ANNOTATION>
+        <ANNOTATION><ALIGNABLE_ANNOTATION ANNOTATION_ID="w1" TIME_SLOT_REF1="ts0" TIME_SLOT_REF2="u"><ANNOTATION_VALUE>first</ANNOTATION_VALUE></ALIGNABLE_ANNOTATION></ANNOTATION>
+    </TIER>
+    <TIER TIER_ID="gloss" LINGUISTIC_TYPE_REF="gloss" PARENT_REF="words">
+        <ANNOTATION><REF_ANNOTATION ANNOTATION_ID="r2" ANNOTATION_REF="w2"><ANNOTATION_VALUE>second gloss</ANNOTATION_VALUE></REF_ANNOTATION></ANNOTATION>
+        <ANNOTATION><REF_ANNOTATION ANNOTATION_ID="r1" ANNOTATION_REF="w1"><ANNOTATION_VALUE>first gloss</ANNOTATION_VALUE></REF_ANNOTATION></ANNOTATION>
+    </TIER>
+    <TIER TIER_ID="chain" LINGUISTIC_TYPE_REF="chain" PARENT_REF="root">
+        <ANNOTATION><REF_ANNOTATION ANNOTATION_ID="q2" ANNOTATION_REF="a1" PREVIOUS_ANNOTATION="q1"><ANNOTATION_VALUE>second chain</ANNOTATION_VALUE></REF_ANNOTATION></ANNOTATION>
+        <ANNOTATION><REF_ANNOTATION ANNOTATION_ID="q1" ANNOTATION_REF="a1"><ANNOTATION_VALUE>first chain</ANNOTATION_VALUE></REF_ANNOTATION></ANNOTATION>
+    </TIER>
+    <LINGUISTIC_TYPE LINGUISTIC_TYPE_ID="root" TIME_ALIGNABLE="true"/>
+    <LINGUISTIC_TYPE LINGUISTIC_TYPE_ID="included" TIME_ALIGNABLE="true" CONSTRAINTS="Included_In"/>
+    <LINGUISTIC_TYPE LINGUISTIC_TYPE_ID="words" TIME_ALIGNABLE="true" CONSTRAINTS="Time_Subdivision"/>
+    <LINGUISTIC_TYPE LINGUISTIC_TYPE_ID="gloss" TIME_ALIGNABLE="false" CONSTRAINTS="Symbolic_Association"/>
+    <LINGUISTIC_TYPE LINGUISTIC_TYPE_ID="chain" TIME_ALIGNABLE="false" CONSTRAINTS="Symbolic_Subdivision"/>
+    <LANGUAGE LANG_ID="eng" LANG_DEF="http://example.test/eng" LANG_LABEL="English"/>
+    <CONSTRAINT DESCRIPTION="Time subdivision of parent annotation's time interval, no time gaps allowed within this interval" STEREOTYPE="Time_Subdivision"/>
+    <CONSTRAINT DESCRIPTION="Symbolic subdivision of a parent annotation. Annotations refering to the same parent are ordered" STEREOTYPE="Symbolic_Subdivision"/>
+    <CONSTRAINT DESCRIPTION="1-1 association with a parent annotation" STEREOTYPE="Symbolic_Association"/>
+    <CONSTRAINT DESCRIPTION="Time alignable annotations within the parent annotation's time interval, gaps are allowed" STEREOTYPE="Included_In"/>
+    <EXTERNAL_REF EXT_REF_ID="er1" TYPE="resource_url" VALUE="https://example.test/reference"/>
+</ANNOTATION_DOCUMENT>
