@@ -279,7 +279,7 @@ def load_cached(entry: Path) -> PeakPyramid | None:
             raise ValueError("not an .npz archive")
         with loaded as data:
             meta = data["meta"]
-            if meta.shape != (4,) or int(meta[0]) != CACHE_VERSION:
+            if meta.shape != (4,) or meta.dtype.kind not in "iu" or int(meta[0]) != CACHE_VERSION:
                 raise ValueError("cache version")
             sample_rate, channels, n_samples = (int(v) for v in meta[1:])
             levels: list[PeakLevel] = []
@@ -291,7 +291,7 @@ def load_cached(entry: Path) -> PeakPyramid | None:
                 i += 1
         _validate(levels, sample_rate, channels, n_samples)
         return PeakPyramid(sample_rate, channels, n_samples, tuple(levels))
-    except (OSError, ValueError, TypeError, KeyError, EOFError, zipfile.BadZipFile):
+    except (OSError, ValueError, TypeError, OverflowError, KeyError, EOFError, zipfile.BadZipFile):
         with contextlib.suppress(OSError):
             entry.unlink(missing_ok=True)
         return None

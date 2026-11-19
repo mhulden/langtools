@@ -364,6 +364,35 @@ def test_inconsistent_cache_values_are_rebuilt(tone_wav: Path, tmp_path: Path, d
     assert load_cached(entry) is not None
 
 
+@pytest.mark.parametrize(
+    "meta",
+    [
+        np.array([np.inf, 48000, 1, 144000]),  # int(inf) raises OverflowError
+        np.array([np.nan, 48000, 1, 144000]),
+        np.array([1.0, 48000.0, 1.0, 144000.0]),  # right values, wrong dtype
+        np.array([1, 48000, 1], dtype=np.int64),
+    ],
+    ids=["inf", "nan", "float", "short"],
+)
+def test_bad_cache_metadata_is_rebuilt(tone_wav: Path, tmp_path: Path, meta: np.ndarray) -> None:
+    root = tmp_path / "cache"
+    reference = compute_peaks(tone_wav, cache_root=root)
+    entry = cache_entry_path(tone_wav, 0, root)
+    with np.load(entry, allow_pickle=False) as data:
+        arrays = {name: data[name] for name in data.files}
+    arrays["meta"] = meta
+
+    with entry.open("wb") as fh:
+        np.savez(fh, **arrays)
+    assert load_cached(entry) is None
+
+    with entry.open("wb") as fh:
+        np.savez(fh, **arrays)
+    result = compute_peaks(tone_wav, cache_root=root)
+    _assert_same_pyramid(result, reference)
+    assert load_cached(entry) is not None
+
+
 def test_plain_npy_at_the_cache_path_is_rebuilt(tone_wav: Path, tmp_path: Path) -> None:
     root = tmp_path / "cache"
     reference = compute_peaks(tone_wav, cache_root=root)
