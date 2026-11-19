@@ -101,6 +101,7 @@ def compute_peaks(
     1.0. When ``cancel()`` returns True, `PeaksCancelled` is raised and nothing is cached.
     """
     source = Path(path).resolve()
+    _check_cancel(cancel, source)
     entry: Path | None = None
     if use_cache:
         entry = cache_entry_path(source, stream_index, cache_root)
@@ -111,11 +112,17 @@ def compute_peaks(
             return cached
 
     pyramid = _decode_pyramid(source, stream_index, progress, cancel)
+    _check_cancel(cancel, source)  # a request during the last frames still wins over caching
     if entry is not None:
         store_cached(entry, pyramid)
     if progress is not None:
         progress(1.0)
     return pyramid
+
+
+def _check_cancel(cancel: CancelCheck | None, source: Path) -> None:
+    if cancel is not None and cancel():
+        raise PeaksCancelled(str(source))
 
 
 def build_levels(level0_mins: Peaks, level0_maxs: Peaks) -> tuple[PeakLevel, ...]:
@@ -164,8 +171,7 @@ def _decode_pyramid(
             pending = joined[:, n_full * BASE_BUCKET :]
 
         for frame in container.decode(stream):
-            if cancel is not None and cancel():
-                raise PeaksCancelled(str(source))
+            _check_cancel(cancel, source)
             for out in resampler.resample(frame):
                 consume(np.asarray(out.to_ndarray(), dtype=np.float32))
             if progress is not None and total_s and frame.time is not None:
@@ -268,7 +274,10 @@ def load_cached(entry: Path) -> PeakPyramid | None:
     try:
         # Parse from memory: np.load keeps the file open when a zip is truncated, and an open
         # file cannot be deleted on Windows.
-        with np.load(io.BytesIO(entry.read_bytes()), allow_pickle=False) as data:
+        loaded = np.load(io.BytesIO(entry.read_bytes()), allow_pickle=False)
+        if not isinstance(loaded, np.lib.npyio.NpzFile):  # e.g. a plain .npy at this path
+            raise ValueError("not an .npz archive")
+        with loaded as data:
             meta = data["meta"]
             if meta.shape != (4,) or int(meta[0]) != CACHE_VERSION:
                 raise ValueError("cache version")
@@ -280,21 +289,33 @@ def load_cached(entry: Path) -> PeakPyramid | None:
                 maxs = np.asarray(data[f"max{i}"], dtype=np.float32)
                 levels.append(PeakLevel(BASE_BUCKET * LEVEL_FACTOR**i, mins, maxs))
                 i += 1
-        _validate(levels, channels, n_samples)
+        _validate(levels, sample_rate, channels, n_samples)
         return PeakPyramid(sample_rate, channels, n_samples, tuple(levels))
-    except (OSError, ValueError, KeyError, EOFError, zipfile.BadZipFile):
+    except (OSError, ValueError, TypeError, KeyError, EOFError, zipfile.BadZipFile):
         with contextlib.suppress(OSError):
             entry.unlink(missing_ok=True)
         return None
 
 
-def _validate(levels: list[PeakLevel], channels: int, n_samples: int) -> None:
-    if not levels:
-        raise ValueError("no levels")
+def _validate(levels: list[PeakLevel], sample_rate: int, channels: int, n_samples: int) -> None:
+    """Reject entries that could not have come from `compute_peaks`."""
+    if sample_rate <= 0 or channels <= 0 or n_samples < 0 or not levels:
+        raise ValueError("bad metadata")
     for level in levels:
         expected = -(-n_samples // level.samples_per_bucket)
         shape = (channels, expected)
         if level.mins.shape != shape or level.maxs.shape != shape:
             raise ValueError("level shape")
+        if not (np.isfinite(level.mins).all() and np.isfinite(level.maxs).all()):
+            raise ValueError("non-finite peak")
+        if (level.mins > level.maxs).any():
+            raise ValueError("min above max")
     if n_samples and levels[-1].n_buckets != 1:
         raise ValueError("pyramid incomplete")
+    if n_samples:
+        rebuilt = build_levels(levels[0].mins, levels[0].maxs)
+        if len(rebuilt) != len(levels) or not all(
+            np.array_equal(a.mins, b.mins) and np.array_equal(a.maxs, b.maxs)
+            for a, b in zip(rebuilt, levels, strict=True)
+        ):
+            raise ValueError("coarse levels do not match level 0")

@@ -5,6 +5,7 @@ Every test passes its own ``cache_root`` under ``tmp_path``, so the real user ca
 
 from __future__ import annotations
 
+import dataclasses
 import itertools
 import math
 import os
@@ -35,6 +36,7 @@ from elan_ng.media.peaks import (
     cache_entry_path,
     compute_peaks,
     load_cached,
+    store_cached,
 )
 
 N_SAMPLES = WAV_RATE * WAV_DURATION_MS // 1000  # 144000
@@ -308,6 +310,74 @@ def test_cancel_raises_and_caches_nothing(tone_wav: Path, tmp_path: Path) -> Non
         compute_peaks(tone_wav, cancel=cancel, cache_root=root)
     assert calls == 3
     assert not root.exists() or list(root.glob("*.npz")) == []
+
+
+def test_cancel_during_the_last_frames_still_caches_nothing(tone_wav: Path, tmp_path: Path) -> None:
+    root = tmp_path / "cache"
+    requested = False
+
+    def progress(fraction: float) -> None:
+        nonlocal requested
+        if fraction >= 0.99:  # the final progress report, after the last cancel check in the loop
+            requested = True
+
+    with pytest.raises(PeaksCancelled):
+        compute_peaks(tone_wav, progress=progress, cancel=lambda: requested, cache_root=root)
+    assert requested
+    assert not root.exists() or list(root.glob("*.npz")) == []
+
+
+def test_cancel_before_start_wins_over_a_cache_hit(tone_wav: Path, tmp_path: Path) -> None:
+    root = tmp_path / "cache"
+    compute_peaks(tone_wav, cache_root=root)
+
+    with pytest.raises(PeaksCancelled):
+        compute_peaks(tone_wav, cancel=lambda: True, cache_root=root)
+
+
+def _store_tampered(
+    entry: Path, pyramid: PeakPyramid, mins0: np.ndarray, maxs0: np.ndarray
+) -> None:
+    first = dataclasses.replace(pyramid.levels[0], mins=mins0, maxs=maxs0)
+    store_cached(entry, dataclasses.replace(pyramid, levels=(first, *pyramid.levels[1:])))
+
+
+@pytest.mark.parametrize("damage", ["nan", "min_above_max", "coarse_mismatch"])
+def test_inconsistent_cache_values_are_rebuilt(tone_wav: Path, tmp_path: Path, damage: str) -> None:
+    root = tmp_path / "cache"
+    reference = compute_peaks(tone_wav, cache_root=root)
+    entry = cache_entry_path(tone_wav, 0, root)
+    level0 = reference.levels[0]
+    mins, maxs = level0.mins.copy(), level0.maxs.copy()
+    if damage == "nan":
+        mins[0, 0] = np.nan
+    elif damage == "min_above_max":
+        mins[0, 0], maxs[0, 0] = 0.5, -0.5
+    else:  # a level-0 bucket that no longer matches the stored coarser levels
+        maxs[0, 0] = 0.75
+    _store_tampered(entry, reference, mins, maxs)
+    assert load_cached(entry) is None
+
+    _store_tampered(entry, reference, mins, maxs)
+    result = compute_peaks(tone_wav, cache_root=root)
+    _assert_same_pyramid(result, reference)
+    assert load_cached(entry) is not None
+
+
+def test_plain_npy_at_the_cache_path_is_rebuilt(tone_wav: Path, tmp_path: Path) -> None:
+    root = tmp_path / "cache"
+    reference = compute_peaks(tone_wav, cache_root=root)
+    entry = cache_entry_path(tone_wav, 0, root)
+    with entry.open("wb") as fh:  # np.save on a path would append ".npy"
+        np.save(fh, np.zeros(4, dtype=np.float32))
+
+    assert load_cached(entry) is None  # also deletes the bad entry
+
+    with entry.open("wb") as fh:
+        np.save(fh, np.zeros(4, dtype=np.float32))
+    result = compute_peaks(tone_wav, cache_root=root)
+    _assert_same_pyramid(result, reference)
+    assert load_cached(entry) is not None
 
 
 # --- cache location ----------------------------------------------------------------------
