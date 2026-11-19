@@ -298,9 +298,14 @@ def test_unknown_targets_are_rejected_without_mutating_document(action: str) -> 
     assert snapshot(doc) == before
 
 
-def test_malformed_input_is_rejected_without_repairing_or_dropping_data() -> None:
+@pytest.mark.parametrize("problem", ["reversed-order", "unresolved-times"])
+def test_malformed_input_is_rejected_without_repairing_or_dropping_data(problem: str) -> None:
     doc = simple()
-    doc.time_order.reverse()
+    if problem == "reversed-order":
+        doc.time_order.reverse()
+    else:
+        for slot in doc.time_order:
+            slot.value = None
     before = snapshot(doc)
     with pytest.raises(EditRejected, match="precondition"):
         ConstraintEngine(doc).clear_value("a1")

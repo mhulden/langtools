@@ -85,6 +85,9 @@ class ConstraintEngine:
             check_invariants(self.document)
         except ChangeConflict as exc:
             raise EditRejected("precondition", str(exc)) from exc
+        times = analyze(self.document).times
+        if any(a not in times for a in self.document.annotations()):
+            raise EditRejected("precondition", "annotation times cannot be resolved")
 
     def _tier(self, tier_id: str) -> Tier:
         tier = self.document.tier(tier_id)
